@@ -40,7 +40,11 @@ async def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
 
 
 async def upsert_to_supabase(rows: list[dict]):
-    supabase.table("embeddings").upsert(rows, on_conflict="post_id").execute()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: supabase.table("embeddings").upsert(rows, on_conflict="post_id").execute()
+    )
 
 
 async def process_batch(docs: list[dict]):

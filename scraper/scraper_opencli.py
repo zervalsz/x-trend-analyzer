@@ -36,7 +36,7 @@ LIMIT_PER_QUERY = 20  # opencli 每次抓多少条，可调
 def run_opencli(query: str, limit: int) -> list[dict]:
     cmd = [
         "opencli", "twitter", "search",
-        "--query", query,
+        query,  # 直接放 query，不用 --query
         "--limit", str(limit),
         "-f", "json",
     ]
@@ -75,24 +75,16 @@ def run_opencli(query: str, limit: int) -> list[dict]:
 
 
 def normalize(raw: dict) -> dict | None:
-    """
-    把 opencli 返回的 tweet 格式标准化为 MongoDB 存储格式。
-    opencli 字段名可能是 id/text/author/metrics 等，做个适配。
-    """
     try:
-        # opencli twitter-cli 的字段结构
-        metrics = raw.get("metrics", raw.get("public_metrics", {}))
-        author = raw.get("author", raw.get("user", {}))
-
         return {
-            "post_id": str(raw.get("id", raw.get("post_id", ""))),
-            "text": raw.get("text", raw.get("content", "")),
-            "author": author.get("username", "") if isinstance(author, dict) else str(author),
-            "author_followers": author.get("followers_count", 0) if isinstance(author, dict) else 0,
-            "likes": metrics.get("like_count", metrics.get("likes", 0)),
-            "retweets": metrics.get("retweet_count", metrics.get("retweets", 0)),
-            "replies": metrics.get("reply_count", metrics.get("replies", 0)),
-            "views": metrics.get("impression_count", metrics.get("views", 0)),
+            "post_id": str(raw.get("id", "")),
+            "text": raw.get("text", ""),
+            "author": raw.get("author", ""),
+            "author_followers": 0,  # opencli 不返回此字段
+            "likes": int(raw.get("likes", 0) or 0),
+            "retweets": 0,  # opencli 不返回此字段
+            "replies": 0,   # opencli 不返回此字段
+            "views": int(raw.get("views", 0) or 0),
             "created_at": _parse_date(raw.get("created_at")),
             "scraped_at": datetime.now(timezone.utc),
             "lang": raw.get("lang", "en"),
