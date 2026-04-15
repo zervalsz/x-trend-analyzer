@@ -13,24 +13,36 @@ topics = db["topics"]
 trends = db["trends"]
 posts = db["posts"]
 
-def calculate_status(growth_rates: list[float]) -> str:
-    if len(growth_rates) < 2:
+MIN_TREND_SIZE = 5
+
+
+def calculate_status(growth_rates: list[float], daily_sizes: list[int], median_engagement: float) -> str:
+    if len(growth_rates) < 1:
         return "emerging"
-    avg = np.mean(growth_rates)
-    latest = growth_rates[-1]
-    if avg > 0.2 and latest > 0.1:
-        return "trending"
-    elif avg > 0.1 and latest <= 0.05:
-        return "peak"
-    elif latest < 0:
+
+    avg_growth = np.mean(growth_rates)
+    latest_growth = growth_rates[-1]
+    latest_size = daily_sizes[-1]
+
+    # cooling：最新增长率为负
+    if latest_growth < -0.1:
         return "cooling"
-    else:
-        return "emerging"
+
+    # peak：之前增长，但最新增长率接近 0 或开始下降
+    if avg_growth > 0.2 and latest_growth <= 0.05:
+        return "peak"
+
+    # trending：增长率高 + size 够 + engagement 够
+    if avg_growth > 0.3 and latest_growth > 0.1 and latest_size >= 5 and median_engagement > 100:
+        return "trending"
+
+    # 其余都是 emerging
+    return "emerging"
+
 
 async def score_trend(trend: dict) -> dict:
     topic_ids = trend["topic_ids"]
 
-    # 每个 topic 的 size 和 engagement
     daily_sizes = []
     daily_engagement = []
 
@@ -40,7 +52,6 @@ async def score_trend(trend: dict) -> dict:
         if not topic:
             continue
 
-        # 获取这个 topic 下所有 posts
         post_list = await posts.find(
             {"cluster_id": str(topic["_id"])}
         ).to_list(None)
@@ -49,42 +60,52 @@ async def score_trend(trend: dict) -> dict:
         if size == 0:
             continue
 
-        avg_engagement = np.mean([
+        engagement_values = [
             p.get("likes", 0) + p.get("retweets", 0) + p.get("replies", 0)
             for p in post_list
-        ])
+        ]
+        median_engagement = float(np.median(engagement_values))
 
         daily_sizes.append(size)
-        daily_engagement.append(float(avg_engagement))
+        daily_engagement.append(median_engagement)
 
     if len(daily_sizes) < 2:
         return {}
 
-    # 计算 growth rates
+    total_posts = sum(daily_sizes)
+    if total_posts < MIN_TREND_SIZE:
+        print(f"  → skipping (too small: {total_posts} total posts)")
+        return {}
+
     growth_rates = [
         (daily_sizes[i] - daily_sizes[i-1]) / max(daily_sizes[i-1], 1)
         for i in range(1, len(daily_sizes))
     ]
+
+    median_eng = float(np.median(daily_engagement))
 
     metrics = {
         "daily_sizes": daily_sizes,
         "daily_engagement": daily_engagement,
         "growth_rate": float(np.mean(growth_rates)),
         "velocity": float(daily_sizes[-1] - daily_sizes[0]),
-        "avg_engagement": float(np.mean(daily_engagement)),
+        "avg_engagement": median_eng,
         "days_tracked": len(daily_sizes),
     }
 
-    status = calculate_status(growth_rates)
+    status = calculate_status(growth_rates, daily_sizes, median_eng)
     return {"metrics": metrics, "status": status}
+
 
 async def run_scorer():
     all_trends = await trends.find({}).to_list(None)
     print(f"Scoring {len(all_trends)} trends...\n")
 
     for trend in all_trends:
+        print(f"Trend {trend['_id']}")
         result = await score_trend(trend)
         if not result:
+            print(f"  → skipped\n")
             continue
 
         await trends.update_one(
@@ -97,7 +118,6 @@ async def run_scorer():
         )
 
         m = result["metrics"]
-        print(f"Trend {trend['_id']}")
         print(f"  status:         {result['status']}")
         print(f"  days tracked:   {m['days_tracked']}")
         print(f"  growth rate:    {m['growth_rate']:.2f}")
@@ -106,5 +126,6 @@ async def run_scorer():
         print()
 
     print("Done! All trends scored.")
+
 
 asyncio.run(run_scorer())

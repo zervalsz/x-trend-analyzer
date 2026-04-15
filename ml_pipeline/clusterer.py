@@ -66,7 +66,7 @@ async def cluster_day(target_date: datetime) -> int:
         embeddings = embeddings.reshape(1, -1)
 
     # HDBSCAN 聚类
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=3, metric="euclidean")
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=2, metric="euclidean")
     labels = clusterer.fit_predict(embeddings)
 
     # 整理成 topic clusters
