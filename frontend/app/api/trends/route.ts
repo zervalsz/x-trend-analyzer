@@ -8,7 +8,10 @@ export async function GET() {
 
     const trends = await db
       .collection("trends")
-      .find({})
+      .find({
+        keywords: { $exists: true, $ne: [], $not: { $size: 0 } },
+        summary: { $exists: true, $ne: "" },
+      })
       .sort({ "metrics.avg_engagement": -1 })
       .toArray();
 

@@ -42,19 +42,23 @@ async def summarize_topic(topic: dict) -> dict:
     texts = [p["text"] for p in post_list[:15]]
     combined = "\n---\n".join(texts)
 
-    prompt = f"""You are analyzing a cluster of AI-related posts from X (Twitter).
+    prompt = f"""You are analyzing a cluster of posts from X (Twitter) for an AI trend tracking system.
 
-Here are the posts in this cluster:
----
-{combined}
----
+    Here are the posts in this cluster:
+    ---
+    {combined}
+    ---
 
-Based on these posts, provide:
-1. keywords: 3-5 short keywords that best describe the main topic (e.g. ["AI agents", "autonomous systems", "LLM"])
-2. summary: 1-2 sentence summary of what this cluster is discussing
+    Your job is to identify the AI/technology angle of this cluster.
+    If the posts are primarily about politics, entertainment, or non-tech topics with no clear AI relevance, return:
+    {{"keywords": [], "summary": ""}}
 
-Respond ONLY with a JSON object like this:
-{{"keywords": ["keyword1", "keyword2", "keyword3"], "summary": "One or two sentence summary."}}"""
+    Otherwise provide:
+    1. keywords: 3-5 short keywords focused on the AI/tech topic (e.g. ["AI agents", "LLM", "automation"])
+    2. summary: 1-2 sentence summary focused on the AI/tech discussion only
+
+    Respond ONLY with a JSON object:
+    {{"keywords": ["keyword1", "keyword2"], "summary": "Summary here."}}"""
 
     try:
         response = await openai_client.chat.completions.create(
@@ -129,8 +133,9 @@ async def run_trend_summarizer():
         all_keywords = []
         all_summaries = []
         for t in topic_list:
-            all_keywords.extend(t.get("keywords", []))
-            if t.get("summary"):
+            # 只用有内容的 topics
+            if t.get("keywords") and t.get("summary"):
+                all_keywords.extend(t.get("keywords", []))
                 all_summaries.append(t["summary"])
 
         if not all_summaries:

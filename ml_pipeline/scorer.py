@@ -24,21 +24,20 @@ def calculate_status(growth_rates: list[float], daily_sizes: list[int], median_e
     latest_growth = growth_rates[-1]
     latest_size = daily_sizes[-1]
 
-    # cooling：最新增长率为负
-    if latest_growth < -0.1:
+    # cooling：明显持续下降才判为 cooling
+    if latest_growth < -0.3 and avg_growth < 0:
         return "cooling"
 
-    # peak：之前增长，但最新增长率接近 0 或开始下降
+    # peak：之前增长，但最新增长率接近 0 或轻微下降
     if avg_growth > 0.2 and latest_growth <= 0.05:
         return "peak"
 
     # trending：增长率高 + size 够 + engagement 够
-    if avg_growth > 0.3 and latest_growth > 0.1 and latest_size >= 5 and median_engagement > 100:
+    if avg_growth > 0.3 and latest_growth > 0.1 and latest_size >= 3 and median_engagement > 100:
         return "trending"
 
     # 其余都是 emerging
     return "emerging"
-
 
 async def score_trend(trend: dict) -> dict:
     topic_ids = trend["topic_ids"]

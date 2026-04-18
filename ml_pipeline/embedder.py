@@ -12,6 +12,10 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from motor.motor_asyncio import AsyncIOMotorClient
 from supabase import create_client, Client
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ml_pipeline.noise_filter import keyword_filter
 
 load_dotenv()
 
@@ -79,11 +83,27 @@ async def run():
         print("[embedder] 没有需要处理的 posts，退出。")
         return
 
-    processed = 0
+    # 收集所有待处理 docs
     cursor = posts_col.find(query, {"post_id": 1, "text": 1})
-
-    batch_docs = []
+    all_docs = []
     async for doc in cursor:
+        all_docs.append(doc)
+
+    # Layer 1 noise filter（在 embed 之前，省 token）
+    from ml_pipeline.noise_filter import keyword_filter
+    filtered_docs, stats = keyword_filter(all_docs, text_field="text")
+    print(f"[embedder] noise filter: {stats['total']} -> {stats['kept']} 条 "
+          f"(黑名单 -{stats['rejected_blacklist']}, 无AI关键词 -{stats['rejected_no_whitelist']})")
+
+    if len(filtered_docs) == 0:
+        print("[embedder] 过滤后没有 AI 相关 posts，退出。")
+        return
+
+    total = len(filtered_docs)
+    processed = 0
+    batch_docs = []
+
+    for doc in filtered_docs:
         batch_docs.append(doc)
         if len(batch_docs) >= BATCH_SIZE:
             await process_batch(batch_docs)
@@ -100,3 +120,18 @@ async def run():
 
 if __name__ == "__main__":
     asyncio.run(run())
+
+if __name__ == "__main__":
+    # 临时测试 noise filter
+    from ml_pipeline.noise_filter import keyword_filter
+    test_posts = [
+        {"post_id": "1", "text": "GPT-4 just released new features for AI agents"},
+        {"post_id": "2", "text": "Political scandal rocks the government corruption case"},
+        {"post_id": "3", "text": "New LLM benchmark shows impressive machine learning results"},
+        {"post_id": "4", "text": "Celebrity drama and Hollywood gossip today"},
+        {"post_id": "5", "text": "AI safety research from Anthropic on alignment"},
+    ]
+    kept, stats = keyword_filter(test_posts)
+    print(stats)
+    for p in kept:
+        print("✅", p["text"])
