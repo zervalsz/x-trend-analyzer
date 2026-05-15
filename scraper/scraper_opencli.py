@@ -25,12 +25,20 @@ AI_QUERIES = [
     "LLM",
     "artificial intelligence",
     "machine learning",
+    "deep learning",
+    "neural network",
+
     # 主流模型/产品
     "ChatGPT",
     "Claude",
     "Gemini",
     "GPT-4o",
+    "GPT-5",
     "Llama",
+    "Mistral",
+    "DeepSeek",
+    "Grok AI",
+
     # 热门话题
     "AI agent",
     "vibe coding",
@@ -38,6 +46,21 @@ AI_QUERIES = [
     "AI coding",
     "open source AI",
     "AI tools",
+    "AI automation",
+    "AI safety",
+    "AI alignment",
+
+    # 细分方向
+    "prompt engineering",
+    "RAG AI",
+    "multimodal AI",
+    "AI image generation",
+    "text to video AI",
+    "AI startup",
+    "foundation model",
+    "reinforcement learning",
+    "AI chip",
+    # "AI infrastructure",
 ]
 LIMIT_PER_QUERY = 50
 

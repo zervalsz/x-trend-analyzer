@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,15 +55,19 @@ interface Stats {
   lastScraped: string | null;
 }
 
-// ─── Pipeline config ──────────────────────────────────────────────────────────
+interface HotTopic {
+  _id: string;
+  keywords: string[];
+  summary: string;
+  size: number;
+  trend_id: string | null;
+  trend_status: string;
+}
 
-const PIPELINE_STEPS = [
-  { id: "scrape",  label: "Scrape",  sublabel: "OpenCLI + X",                   icon: "⬇", description: "Collects AI-related posts from X via browser session. 15 search queries, runs daily.", color: "#38bdf8" },
-  { id: "embed",   label: "Embed",   sublabel: "text-embedding-3-small",         icon: "⬡", description: "Converts each post into a 1536-dim semantic vector via OpenAI. Stored in Supabase pgvector.", color: "#818cf8" },
-  { id: "cluster", label: "Cluster", sublabel: "HDBSCAN",                        icon: "◎", description: "Groups semantically similar posts into topic clusters daily. min_cluster_size=2 to catch early signals.", color: "#fb923c" },
-  { id: "link",    label: "Link",    sublabel: "cosine sim > 0.65",              icon: "⟶", description: "Connects topic clusters across days into trend chains. Coherence check (0.7) prevents topic drift.", color: "#34d399" },
-  { id: "score",   label: "Score",   sublabel: "growth · velocity · engagement", icon: "▲", description: "Assigns status based on growth rate, velocity, and median engagement.", color: "#f472b6" },
-];
+interface DailyHot {
+  date: string;
+  topics: HotTopic[];
+}
 
 // ─── Shared keyword tag ───────────────────────────────────────────────────────
 
@@ -74,188 +79,162 @@ function KwTag({ kw }: { kw: string }) {
   );
 }
 
-// ─── Pipeline Modal ───────────────────────────────────────────────────────────
+// ─── Daily Post Chart ─────────────────────────────────────────────────────────
 
-function PipelineModal({ step, onClose }: { step: typeof PIPELINE_STEPS[0]; onClose: () => void }) {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+function DailyPostChart({ topics }: { topics: Topic[] }) {
+  const [hovered, setHovered] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetch(`/api/pipeline/${step.id}`)
-      .then((r) => r.json())
-      .then((d) => { setData(d); setLoading(false); });
-  }, [step.id]);
+  if (!topics || topics.length === 0) return null;
+
+  const sorted = [...topics]
+    .filter((t) => t.size > 0)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  if (sorted.length === 0) return null;
+
+  const maxSize = Math.max(...sorted.map((t) => t.size));
+  const minSize = Math.min(...sorted.map((t) => t.size));
+
+  const VW = 400;
+  const PAD_X = 16;
+  const PAD_TOP = 24;   // room for tooltip above top dot
+  const PAD_BTM = 24;   // room for date labels
+  const CHART_H = 90;
+  const VH = PAD_TOP + CHART_H + PAD_BTM;
+
+  const getX = (i: number) =>
+    sorted.length === 1
+      ? VW / 2
+      : PAD_X + (i / (sorted.length - 1)) * (VW - PAD_X * 2);
+
+  const getY = (size: number) => {
+    if (maxSize === minSize) return PAD_TOP + CHART_H / 2;
+    return PAD_TOP + CHART_H - ((size - minSize) / (maxSize - minSize)) * CHART_H;
+  };
+
+  const linePoints = sorted.map((t, i) => `${getX(i)},${getY(t.size)}`).join(" ");
+
+  const areaPath =
+    sorted.length > 1
+      ? `M ${getX(0)},${PAD_TOP + CHART_H} ` +
+        sorted.map((t, i) => `L ${getX(i)},${getY(t.size)}`).join(" ") +
+        ` L ${getX(sorted.length - 1)},${PAD_TOP + CHART_H} Z`
+      : "";
+
+  // Only label every Nth date to avoid crowding
+  const labelEvery = sorted.length > 10 ? 3 : sorted.length > 6 ? 2 : 1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div
-        className="relative w-full max-w-2xl max-h-[80vh] rounded-2xl border overflow-hidden flex flex-col"
-        style={{ backgroundColor: "rgb(10,18,30)", borderColor: step.color }}
-        onClick={(e) => e.stopPropagation()}
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${VW} ${VH}`}
+        style={{ width: "100%", display: "block" }}
+        onMouseLeave={() => setHovered(null)}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: "rgb(30,45,65)" }}>
-          <div className="flex items-center gap-3">
-            <span className="text-xl" style={{ color: step.color }}>{step.icon}</span>
-            <div>
-              <div className="font-bold font-mono text-slate-100">{step.label}</div>
-              <div className="text-xs font-mono text-slate-400">{step.sublabel}</div>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-xl font-mono">✕</button>
-        </div>
+        {/* Area fill under line */}
+        {areaPath && (
+          <path d={areaPath} fill="rgb(56,189,248)" opacity={0.07} />
+        )}
 
-        <div className="px-6 py-3 text-xs font-mono border-b text-slate-300" style={{ borderColor: "rgb(30,45,65)", backgroundColor: `${step.color}10` }}>
-          {step.description}
-        </div>
+        {/* Line */}
+        <polyline
+          points={linePoints}
+          fill="none"
+          stroke="rgb(56,189,248)"
+          strokeWidth={2}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
 
-        <div className="overflow-y-auto flex-1 px-6 py-4">
-          {loading ? (
-            <div className="text-slate-400 font-mono text-sm animate-pulse">loading data...</div>
-          ) : (
-            <PipelineModalContent step={step} data={data} />
-          )}
-        </div>
-      </div>
+        {/* Per-point hover targets + dots + labels */}
+        {sorted.map((topic, i) => {
+          const cx = getX(i);
+          const cy = getY(topic.size);
+          const isHov = hovered === i;
+          const dateStr = new Date(topic.date).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          });
+
+          // Clamp tooltip box so it doesn't overflow left/right
+          const ttW = 72;
+          const ttX = Math.max(2, Math.min(cx - ttW / 2, VW - ttW - 2));
+
+          return (
+            <g key={topic._id}>
+              {/* Wide invisible hover band */}
+              <rect
+                x={cx - (VW / sorted.length) / 2}
+                y={PAD_TOP}
+                width={VW / sorted.length}
+                height={CHART_H}
+                fill="transparent"
+                style={{ cursor: "crosshair" }}
+                onMouseEnter={() => setHovered(i)}
+              />
+
+              {/* Vertical guide */}
+              {isHov && (
+                <line
+                  x1={cx} y1={PAD_TOP}
+                  x2={cx} y2={PAD_TOP + CHART_H}
+                  stroke="rgb(56,189,248)"
+                  strokeWidth={1}
+                  strokeDasharray="3 2"
+                  opacity={0.35}
+                />
+              )}
+
+              {/* Dot */}
+              <circle
+                cx={cx} cy={cy}
+                r={isHov ? 5 : 3}
+                fill={isHov ? "rgb(56,189,248)" : "rgb(15,25,45)"}
+                stroke="rgb(56,189,248)"
+                strokeWidth={isHov ? 2 : 1.5}
+              />
+
+              {/* Tooltip */}
+              {isHov && (
+                <g>
+                  <rect
+                    x={ttX} y={cy - 42}
+                    width={ttW} height={34}
+                    rx={4}
+                    fill="rgb(20,32,52)"
+                    stroke="rgb(45,62,88)"
+                    strokeWidth={1}
+                  />
+                  <text x={ttX + ttW / 2} y={cy - 26} textAnchor="middle" fontSize={11} fontFamily="monospace" fill="rgb(56,189,248)">
+                    {topic.size} posts
+                  </text>
+                  <text x={ttX + ttW / 2} y={cy - 13} textAnchor="middle" fontSize={10} fontFamily="monospace" fill="rgb(100,116,139)">
+                    {dateStr}
+                  </text>
+                </g>
+              )}
+
+              {/* Date label on X axis */}
+              {i % labelEvery === 0 && (
+                <text
+                  x={cx} y={PAD_TOP + CHART_H + 16}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fontFamily="monospace"
+                  fill={isHov ? "rgb(148,163,184)" : "rgb(71,85,105)"}
+                >
+                  {dateStr}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
 
-function PipelineModalContent({ step, data }: { step: typeof PIPELINE_STEPS[0]; data: any }) {
-  if (step.id === "scrape") {
-    return (
-      <div className="space-y-3">
-        <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Recent posts</div>
-        {data.recentPosts?.map((p: Post) => (
-          <div key={p.post_id} className="rounded-lg p-3 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-            <div className="text-xs font-mono text-slate-400 mb-1">@{p.author}</div>
-            <div className="text-sm text-slate-200 leading-relaxed mb-2">{p.text}</div>
-            <div className="flex gap-4 text-xs font-mono text-slate-400">
-              <span>♥ {p.likes}</span><span>↺ {p.retweets}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (step.id === "embed") {
-    const pct = data.total > 0 ? Math.round((data.embedded / data.total) * 100) : 0;
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            { label: "total posts", value: data.total?.toLocaleString() },
-            { label: "embedded", value: data.embedded?.toLocaleString() },
-            { label: "pending", value: data.pending?.toLocaleString() },
-          ].map((item) => (
-            <div key={item.label} className="rounded-lg p-4 border text-center" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-              <div className="text-2xl font-bold font-mono" style={{ color: step.color }}>{item.value}</div>
-              <div className="text-xs font-mono text-slate-400 mt-1">{item.label}</div>
-            </div>
-          ))}
-        </div>
-        <div>
-          <div className="flex justify-between text-xs font-mono text-slate-400 mb-2">
-            <span>embedding progress</span><span>{pct}%</span>
-          </div>
-          <div className="h-2 rounded-full" style={{ backgroundColor: "rgb(30,45,65)" }}>
-            <div className="h-2 rounded-full" style={{ width: `${pct}%`, backgroundColor: step.color }} />
-          </div>
-        </div>
-        <div className="text-xs font-mono text-slate-300 p-3 rounded-lg border" style={{ borderColor: "rgb(30,45,65)", backgroundColor: "rgb(8,14,26)" }}>
-          model: text-embedding-3-small · dims: 1536 · storage: Supabase pgvector
-        </div>
-      </div>
-    );
-  }
-
-  if (step.id === "cluster") {
-    const byDate: Record<string, any[]> = {};
-    data.topics?.forEach((t: any) => {
-      const d = new Date(t.date).toLocaleDateString();
-      if (!byDate[d]) byDate[d] = [];
-      byDate[d].push(t);
-    });
-    return (
-      <div className="space-y-4">
-        <div className="text-xs font-mono text-slate-400 mb-2">{data.topics?.length} clusters · grouped by day</div>
-        {Object.entries(byDate).reverse().map(([date, topics]) => (
-          <div key={date}>
-            <div className="text-xs font-mono mb-2" style={{ color: step.color }}>{date}</div>
-            <div className="space-y-2">
-              {topics.map((t: any) => (
-                <div key={t._id} className="rounded-lg p-3 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex gap-1.5 flex-wrap">
-                      {t.keywords?.length > 0
-                        ? t.keywords.map((kw: string) => <KwTag key={kw} kw={kw} />)
-                        : <span className="text-xs text-slate-500 font-mono">noise cluster</span>}
-                    </div>
-                    <span className="text-xs font-mono text-slate-400 shrink-0 ml-2">{t.size} posts</span>
-                  </div>
-                  {t.summary && <div className="text-xs text-slate-300 mt-1 leading-relaxed">{t.summary}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (step.id === "link") {
-    return (
-      <div className="space-y-3">
-        <div className="text-xs font-mono text-slate-400 mb-2">{data.trends?.length} trend chains</div>
-        {data.trends?.map((t: any) => (
-          <div key={t._id} className="rounded-lg p-3 border flex items-center justify-between" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-            <div>
-              <div className="flex gap-1.5 flex-wrap mb-1">
-                {t.keywords?.length > 0
-                  ? t.keywords.map((kw: string) => <KwTag key={kw} kw={kw} />)
-                  : <span className="text-xs text-slate-500 font-mono">no keywords yet</span>}
-              </div>
-              <div className="text-xs font-mono text-slate-400">{t.topic_count} topics linked</div>
-            </div>
-            <div className={`text-xs font-mono px-2 py-0.5 rounded-full border ${STATUS_CONFIG[t.status]?.bg} ${STATUS_CONFIG[t.status]?.color} ${STATUS_CONFIG[t.status]?.border}`}>
-              {t.status}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (step.id === "score") {
-    return (
-      <div className="space-y-3">
-        <div className="text-xs font-mono text-slate-400 mb-2">scoring: growth rate · velocity · median engagement</div>
-        {data.trends?.map((t: any) => (
-          <div key={t._id} className="rounded-lg p-3 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex gap-1.5 flex-wrap">
-                {t.keywords?.slice(0, 3).map((kw: string) => <KwTag key={kw} kw={kw} />)}
-              </div>
-              <span className={`text-xs font-mono px-2 py-0.5 rounded-full border ${STATUS_CONFIG[t.status]?.bg} ${STATUS_CONFIG[t.status]?.color} ${STATUS_CONFIG[t.status]?.border}`}>
-                {t.status}
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-              <div><span className="text-slate-400">growth </span><span style={{ color: step.color }}>{t.metrics?.growth_rate != null ? `${(t.metrics.growth_rate * 100).toFixed(0)}%` : "—"}</span></div>
-              <div><span className="text-slate-400">velocity </span><span style={{ color: step.color }}>{t.metrics?.velocity ?? "—"}</span></div>
-              <div><span className="text-slate-400">engagement </span><span style={{ color: step.color }}>{t.metrics?.avg_engagement?.toFixed(0) ?? "—"}</span></div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return null;
-}
-
-// ─── Trend Drawer ─────────────────────────────────────────────────────────────
+// ─── Trend Modal ──────────────────────────────────────────────────────────────
 
 function TrendDrawer({ trendId, onClose }: { trendId: string; onClose: () => void }) {
   const [trend, setTrend] = useState<Trend | null>(null);
@@ -270,27 +249,25 @@ function TrendDrawer({ trendId, onClose }: { trendId: string; onClose: () => voi
 
   const config = trend ? (STATUS_CONFIG[trend.status] || STATUS_CONFIG.emerging) : STATUS_CONFIG.emerging;
   const metrics = trend?.metrics ?? {};
-  const dailySizes = metrics.daily_sizes ?? [];
-  const max = dailySizes.length > 0 ? Math.max(...dailySizes) : 1;
   const growthRate = metrics.growth_rate ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-xl h-full border-l overflow-y-auto"
+        className="relative w-full max-w-4xl max-h-[88vh] rounded-2xl border flex flex-col overflow-hidden"
         style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
-          <div className="flex items-center justify-center h-full text-slate-400 font-mono text-sm animate-pulse">
+          <div className="flex items-center justify-center h-64 text-slate-400 font-mono text-sm animate-pulse">
             loading trend data...
           </div>
         ) : trend ? (
           <>
             {/* Header */}
-            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: "rgb(30,45,65)", backgroundColor: "rgba(10,18,30,0.97)" }}>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: "rgb(30,45,65)" }}>
+              <div className="flex items-center gap-3">
                 <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border ${config.bg} ${config.color} ${config.border}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
                   {config.label}
@@ -298,202 +275,191 @@ function TrendDrawer({ trendId, onClose }: { trendId: string; onClose: () => voi
                 {metrics.days_tracked && (
                   <span className="text-xs font-mono text-slate-400">{metrics.days_tracked}d tracked</span>
                 )}
+                <div className="flex flex-wrap gap-1.5">
+                  {(trend.keywords ?? []).map((kw) => <KwTag key={kw} kw={kw} />)}
+                </div>
               </div>
-              <button onClick={onClose} className="text-slate-400 hover:text-slate-200 font-mono text-lg">✕</button>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-200 font-mono text-lg shrink-0 ml-4">✕</button>
             </div>
 
-            <div className="px-6 py-5 space-y-6">
-              {/* Keywords */}
-              <div>
-                <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-2">Keywords</div>
-                <div className="flex flex-wrap gap-2">
-                  {(trend.keywords ?? []).map((kw) => (
-                    <span key={kw} className="text-sm px-3 py-1 rounded-lg font-mono text-slate-200" style={{ backgroundColor: "rgb(20,32,52)", border: "1px solid rgb(40,58,85)" }}>
-                      {kw}
-                    </span>
-                  ))}
-                </div>
-              </div>
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1">
+              {/* Two-column layout: left = summary + chart, right = timeline */}
+              <div className="grid grid-cols-5 divide-x" style={{ borderColor: "rgb(30,45,65)" }}>
 
-              {/* Summary */}
-              {trend.summary && (
-                <div>
-                  <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-2">Summary</div>
-                  <p className="text-sm text-slate-200 leading-relaxed">{trend.summary}</p>
-                </div>
-              )}
+                {/* Left column */}
+                <div className="col-span-3 px-6 py-5 space-y-6">
+                  {/* Summary */}
+                  {trend.summary && (
+                    <div>
+                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-2">Summary</div>
+                      <p className="text-sm text-slate-200 leading-relaxed">{trend.summary}</p>
+                    </div>
+                  )}
 
-              {/* Metrics */}
-              {metrics.days_tracked && (
-                <div>
-                  <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Metrics</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { label: "growth rate", value: `${growthRate >= 0 ? "+" : ""}${(growthRate * 100).toFixed(0)}%`, positive: growthRate >= 0 },
-                      { label: "avg engagement", value: metrics.avg_engagement?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "—", positive: true },
-                      { label: "velocity", value: `${(metrics.velocity ?? 0) >= 0 ? "+" : ""}${metrics.velocity ?? "—"}`, positive: (metrics.velocity ?? 0) >= 0 },
-                      { label: "days tracked", value: `${metrics.days_tracked}d`, positive: true },
-                    ].map((m) => (
-                      <div key={m.label} className="rounded-lg p-3 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-                        <div className="text-xs font-mono text-slate-400 mb-1">{m.label}</div>
-                        <div className={`text-lg font-bold font-mono ${m.positive ? config.color : "text-red-400"}`}>{m.value}</div>
+                  {/* Metrics */}
+                  {metrics.days_tracked && (
+                    <div>
+                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Metrics</div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { label: "growth rate", value: `${growthRate >= 0 ? "+" : ""}${(growthRate * 100).toFixed(0)}%`, positive: growthRate >= 0 },
+                          { label: "avg engagement", value: metrics.avg_engagement?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "—", positive: true },
+                          { label: "velocity", value: `${(metrics.velocity ?? 0) >= 0 ? "+" : ""}${metrics.velocity ?? "—"}`, positive: (metrics.velocity ?? 0) >= 0 },
+                          { label: "days tracked", value: `${metrics.days_tracked}d`, positive: true },
+                        ].map((m) => (
+                          <div key={m.label} className="rounded-lg p-3 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
+                            <div className="text-xs font-mono text-slate-400 mb-1">{m.label}</div>
+                            <div className={`text-lg font-bold font-mono ${m.positive ? config.color : "text-red-400"}`}>{m.value}</div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+
+                  {/* Daily post chart */}
+                  {trend.topics && trend.topics.length > 0 && (
+                    <div>
+                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Daily Posts</div>
+                      <div className="rounded-lg p-4 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
+                        <DailyPostChart topics={trend.topics} />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
 
-              {/* Sparkline */}
-              {dailySizes.length > 1 && (
-                <div>
-                  <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Daily Volume</div>
-                  <div className="flex items-end gap-1 h-16 rounded-lg p-3 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-                    {dailySizes.map((size, i) => {
-                      const height = max > 0 ? (size / max) * 100 : 0;
-                      const isLast = i === dailySizes.length - 1;
-                      return (
-                        <div key={i} className="flex-1 rounded-sm" style={{
-                          height: `${Math.max(height, 6)}%`,
-                          backgroundColor: isLast ? "rgb(56,189,248)" : "rgb(30,48,75)",
-                          opacity: isLast ? 1 : 0.4 + (i / dailySizes.length) * 0.4,
-                        }} title={`Day ${i + 1}: ${size} posts`} />
-                      );
-                    })}
-                  </div>
-                  <div className="flex justify-between text-xs font-mono text-slate-400 mt-1 px-1">
-                    <span>day 1</span><span>today</span>
-                  </div>
-                </div>
-              )}
+                {/* Right column: topic timeline */}
+                <div className="col-span-2 px-5 py-5 border-l" style={{ borderColor: "rgb(30,45,65)" }}>
+                  {trend.topics && trend.topics.length > 0 ? (
+                    <>
+                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">
+                        Topic Timeline · {trend.topics.length} days
+                      </div>
+                      <div className="space-y-2">
+                        {trend.topics.map((topic) => {
+                          const isExpanded = expandedTopic === topic._id;
+                          const dateStr = new Date(topic.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                          return (
+                            <div key={topic._id} className="rounded-lg border overflow-hidden" style={{ borderColor: "rgb(30,45,65)" }}>
+                              <button
+                                className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-white/5 transition-colors"
+                                style={{ backgroundColor: "rgb(10,18,30)" }}
+                                onClick={() => setExpandedTopic(isExpanded ? null : topic._id)}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-xs font-mono text-slate-400 shrink-0">{dateStr}</span>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {topic.keywords?.length > 0
+                                      ? topic.keywords.slice(0, 2).map((kw) => <KwTag key={kw} kw={kw} />)
+                                      : <span className="text-xs text-slate-500 font-mono">no keywords</span>}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                  <span className="text-xs font-mono text-slate-400">{topic.size}</span>
+                                  <span className="text-slate-400 font-mono text-xs">{isExpanded ? "▲" : "▼"}</span>
+                                </div>
+                              </button>
 
-              {/* Topic timeline */}
-              {trend.topics && trend.topics.length > 0 && (
-                <div>
-                  <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">
-                    Topic Timeline · {trend.topics.length} days
-                  </div>
-                  <div className="space-y-2">
-                    {trend.topics.map((topic) => {
-                      const isExpanded = expandedTopic === topic._id;
-                      const dateStr = new Date(topic.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-                      return (
-                        <div key={topic._id} className="rounded-lg border overflow-hidden" style={{ borderColor: "rgb(30,45,65)" }}>
-                          <button
-                            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/5 transition-colors"
-                            style={{ backgroundColor: "rgb(10,18,30)" }}
-                            onClick={() => setExpandedTopic(isExpanded ? null : topic._id)}
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs font-mono text-slate-400 shrink-0">{dateStr}</span>
-                              <div className="flex gap-1.5 flex-wrap">
-                                {topic.keywords?.length > 0
-                                  ? topic.keywords.map((kw) => <KwTag key={kw} kw={kw} />)
-                                  : <span className="text-xs text-slate-500 font-mono">no keywords</span>}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-2">
-                              <span className="text-xs font-mono text-slate-400">{topic.size} posts</span>
-                              <span className="text-slate-400 font-mono text-xs">{isExpanded ? "▲" : "▼"}</span>
-                            </div>
-                          </button>
-
-                          {isExpanded && (
-                            <div className="border-t px-4 py-3 space-y-3" style={{ borderColor: "rgb(30,45,65)", backgroundColor: "rgb(8,14,26)" }}>
-                              {topic.summary && (
-                                <p className="text-xs text-slate-300 leading-relaxed">{topic.summary}</p>
-                              )}
-                              {topic.posts?.length > 0 && (
-                                <div className="space-y-2">
-                                  <div className="text-xs font-mono text-slate-400">sample posts</div>
-                                  {topic.posts.map((post) => (
-                                    <div key={post.post_id} className="rounded-lg p-3 border" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
-                                      <div className="text-xs font-mono text-slate-400 mb-1">@{post.author}</div>
-                                      <div className="text-xs text-slate-200 leading-relaxed mb-2">{post.text}</div>
-                                      <div className="flex gap-3 text-xs font-mono text-slate-400">
-                                        <span>♥ {post.likes}</span>
-                                        <span>↺ {post.retweets}</span>
-                                        <span>💬 {post.replies}</span>
-                                        {post.views > 0 && <span>👁 {post.views.toLocaleString()}</span>}
-                                      </div>
+                              {isExpanded && (
+                                <div className="border-t px-3 py-3 space-y-2" style={{ borderColor: "rgb(30,45,65)", backgroundColor: "rgb(8,14,26)" }}>
+                                  {topic.summary && (
+                                    <p className="text-xs text-slate-300 leading-relaxed">{topic.summary}</p>
+                                  )}
+                                  {topic.posts?.length > 0 && (
+                                    <div className="space-y-2 mt-2">
+                                      <div className="text-xs font-mono text-slate-400">sample posts</div>
+                                      {topic.posts.map((post) => (
+                                        <div key={post.post_id} className="rounded-lg p-2.5 border" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
+                                          <div className="text-xs font-mono text-slate-400 mb-1">@{post.author}</div>
+                                          <div className="text-xs text-slate-200 leading-relaxed mb-1.5">{post.text}</div>
+                                          <div className="flex gap-3 text-xs font-mono text-slate-400">
+                                            <span>♥ {post.likes}</span>
+                                            <span>↺ {post.retweets}</span>
+                                            {post.views > 0 && <span>👁 {post.views.toLocaleString()}</span>}
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
-                                  ))}
+                                  )}
                                 </div>
                               )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-500 font-mono text-xs">
+                      no topic data
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </>
         ) : (
-          <div className="flex items-center justify-center h-full text-slate-400 font-mono text-sm">trend not found</div>
+          <div className="flex items-center justify-center h-64 text-slate-400 font-mono text-sm">trend not found</div>
         )}
       </div>
     </div>
   );
 }
 
-// ─── Pipeline Visualizer ──────────────────────────────────────────────────────
+// ─── Daily Hot Section ────────────────────────────────────────────────────────
 
-function PipelineVisualizer({ stats, onStepClick }: { stats: Stats; onStepClick: (step: typeof PIPELINE_STEPS[0]) => void }) {
-  const [hoveredStep, setHoveredStep] = useState<string | null>(null);
+const STATUS_DOT: Record<string, string> = {
+  trending: "bg-emerald-400",
+  emerging: "bg-sky-400",
+  peak:     "bg-amber-400",
+  cooling:  "bg-slate-400",
+};
 
-  const stepValues: Record<string, { value: string; unit: string }> = {
-    scrape:  { value: stats.totalPosts.toLocaleString(),    unit: "posts collected" },
-    embed:   { value: stats.embeddedPosts.toLocaleString(), unit: "vectors stored" },
-    cluster: { value: stats.totalTopics.toLocaleString(),   unit: "topic clusters" },
-    link:    { value: stats.totalTrends.toLocaleString(),   unit: "trend chains" },
-    score:   { value: stats.activeTrends.toLocaleString(),  unit: "active trends" },
-  };
+function DailyHotSection({ days, onTopicClick }: { days: DailyHot[]; onTopicClick: (trendId: string) => void }) {
+  if (!days.length) return null;
+  const shown = days.slice(0, 5);
 
   return (
-    <div className="relative mb-10">
-      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-5">▶ Pipeline · click to explore</div>
-      <div className="flex items-stretch gap-0">
-        {PIPELINE_STEPS.map((step, i) => {
-          const isHovered = hoveredStep === step.id;
-          const val = stepValues[step.id];
+    <div className="mb-8">
+      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Daily Hot Topics</div>
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${shown.length}, 1fr)` }}>
+        {shown.map(({ date, topics }) => {
+          const dateLabel = new Date(date + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+          const isToday = date === new Date().toISOString().slice(0, 10);
           return (
-            <div key={step.id} className="flex items-center flex-1">
-              <button
-                className="flex-1 text-left cursor-pointer"
-                onMouseEnter={() => setHoveredStep(step.id)}
-                onMouseLeave={() => setHoveredStep(null)}
-                onClick={() => onStepClick(step)}
-              >
-                <div
-                  className="relative border rounded-lg p-4 transition-all duration-200 w-full h-full"
-                  style={{
-                    borderColor: isHovered ? step.color : "rgb(30,45,65)",
-                    backgroundColor: isHovered ? `${step.color}14` : "rgb(10,18,30)",
-                    boxShadow: isHovered ? `0 0 24px ${step.color}20` : "none",
-                  }}
-                >
-                  <div className="text-xs font-mono mb-2" style={{ color: step.color, opacity: 0.6 }}>0{i + 1}</div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-base" style={{ color: step.color }}>{step.icon}</span>
-                    <span className="text-sm font-semibold text-slate-100">{step.label}</span>
-                  </div>
-                  <div className="text-xs text-slate-400 font-mono mb-3">{step.sublabel}</div>
-                  <div className="text-lg font-bold font-mono" style={{ color: step.color }}>{val.value}</div>
-                  <div className="text-xs text-slate-400">{val.unit}</div>
-                  {isHovered && (
-                    <div className="absolute bottom-2 right-2 text-xs font-mono" style={{ color: step.color, opacity: 0.6 }}>click ↗</div>
-                  )}
-                </div>
-              </button>
-              {i < PIPELINE_STEPS.length - 1 && (
-                <div className="flex items-center px-1 shrink-0">
-                  <svg width="24" height="12" viewBox="0 0 24 12">
-                    <line x1="0" y1="6" x2="18" y2="6" stroke="rgb(55,75,100)" strokeWidth="1.5" strokeDasharray="3 2" />
-                    <polygon points="18,2 24,6 18,10" fill="rgb(55,75,100)" />
-                  </svg>
-                </div>
-              )}
+            <div
+              key={date}
+              className="rounded-xl border flex flex-col"
+              style={{
+                backgroundColor: isToday ? "rgb(12,22,38)" : "rgb(10,18,30)",
+                borderColor: isToday ? "rgba(56,189,248,0.3)" : "rgb(30,45,65)",
+              }}
+            >
+              <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "rgb(30,45,65)" }}>
+                <span className="text-xs font-mono font-bold" style={{ color: isToday ? "rgb(56,189,248)" : "rgb(148,163,184)" }}>
+                  {dateLabel}
+                </span>
+                {isToday && <span className="text-xs font-mono text-sky-400 opacity-60">today</span>}
+              </div>
+              <div className="flex flex-col">
+                {topics.map((topic, i) => (
+                  <button
+                    key={topic._id}
+                    className="flex items-start gap-2 px-3 py-2.5 text-left hover:bg-white/5 transition-colors w-full border-t"
+                    style={{ borderColor: "rgb(20,32,52)" }}
+                    onClick={() => topic.trend_id && onTopicClick(topic.trend_id)}
+                    disabled={!topic.trend_id}
+                  >
+                    <span className="text-xs font-mono text-slate-500 mt-0.5 shrink-0">#{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-slate-200 leading-snug line-clamp-2">{topic.summary}</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[topic.trend_status] ?? STATUS_DOT.emerging}`} />
+                        <span className="text-xs font-mono text-slate-500">{topic.size} posts</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           );
         })}
@@ -542,14 +508,9 @@ function TrendCard({ trend, index, onClick }: { trend: Trend; index: number; onC
         </div>
       </div>
 
-      {/* Keywords */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {(trend.keywords ?? []).map((kw) => <KwTag key={kw} kw={kw} />)}
-      </div>
-
-      {/* Summary */}
+      {/* Summary as title */}
       {trend.summary && (
-        <p className="text-xs text-slate-300 leading-relaxed mb-4 flex-1 line-clamp-2">{trend.summary}</p>
+        <p className="text-sm text-slate-100 leading-snug mb-4 flex-1 line-clamp-3 font-medium">{trend.summary}</p>
       )}
 
       {/* Metrics */}
@@ -605,36 +566,33 @@ function TrendCard({ trend, index, onClick }: { trend: Trend; index: number; onC
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
+const CATEGORIES: { key: string; label: string }[] = [
+  { key: "trending", label: "Trending" },
+  { key: "peak",     label: "Peak"     },
+  { key: "emerging", label: "Emerging" },
+  { key: "cooling",  label: "Cooling"  },
+];
+
 export default function Dashboard() {
+  const router = useRouter();
   const [trends, setTrends] = useState<Trend[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [dailyHot, setDailyHot] = useState<DailyHot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activePipelineStep, setActivePipelineStep] = useState<typeof PIPELINE_STEPS[0] | null>(null);
-  const [activeTrendId, setActiveTrendId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/trends").then((r) => r.json()),
       fetch("/api/stats").then((r) => r.json()),
-    ]).then(([trendsData, statsData]) => {
+      fetch("/api/daily-hot?days=5&top=5").then((r) => r.json()),
+    ]).then(([trendsData, statsData, hotData]) => {
       setTrends(Array.isArray(trendsData) ? trendsData : []);
       setStats(statsData);
+      setDailyHot(Array.isArray(hotData) ? hotData : []);
       setLoading(false);
     });
   }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setActivePipelineStep(null); setActiveTrendId(null); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  const statusCounts = Object.keys(STATUS_CONFIG).reduce((acc, key) => {
-    acc[key] = trends.filter((t) => t.status === key).length;
-    return acc;
-  }, {} as Record<string, number>);
 
   return (
     <div className="min-h-screen text-slate-100" style={{ backgroundColor: "rgb(8,14,26)" }}>
@@ -671,24 +629,42 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-8 py-8">
         {loading ? (
           <div className="flex items-center justify-center h-64 text-slate-400 text-sm font-mono animate-pulse">
-            loading pipeline data...
+            loading...
           </div>
         ) : (
           <>
-            {stats && <PipelineVisualizer stats={stats} onStepClick={setActivePipelineStep} />}
+            {dailyHot.length > 0 && (
+              <DailyHotSection
+                days={dailyHot}
+                onTopicClick={(trendId) => router.push(`/trends/${trendId}`)}
+              />
+            )}
 
-            <div className="flex items-center gap-4 mb-7">
+            {/* Filter bar */}
+            <div className="flex items-center gap-2 mb-6">
               <div className="flex-1 h-px" style={{ backgroundColor: "rgb(25,38,60)" }} />
-              <div className="text-xs font-mono text-slate-400 flex items-center gap-3">
-                <span>trends output</span>
-                {Object.entries(STATUS_CONFIG).map(([key, config]) =>
-                  statusCounts[key] > 0 ? (
-                    <span key={key} className="flex items-center gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
-                      <span className="text-slate-400">{statusCounts[key]} {config.label.toLowerCase()}</span>
-                    </span>
-                  ) : null
-                )}
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setFilter(null)}
+                  className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors ${filter === null ? "text-slate-100 border-slate-500 bg-white/10" : "text-slate-400 border-transparent hover:border-slate-600"}`}
+                >
+                  all
+                </button>
+                {CATEGORIES.map(({ key, label }) => {
+                  const cfg = STATUS_CONFIG[key];
+                  const count = trends.filter((t) => t.status === key).length;
+                  if (count === 0) return null;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setFilter(filter === key ? null : key)}
+                      className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors flex items-center gap-1.5 ${filter === key ? `${cfg.bg} ${cfg.color} ${cfg.border}` : "text-slate-400 border-transparent hover:border-slate-600"}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                      {label.toLowerCase()} {count}
+                    </button>
+                  );
+                })}
               </div>
               <div className="flex-1 h-px" style={{ backgroundColor: "rgb(25,38,60)" }} />
             </div>
@@ -698,19 +674,44 @@ export default function Dashboard() {
                 <div>no trends detected</div>
                 <div className="text-xs mt-1 text-slate-500">run ml pipeline after collecting data</div>
               </div>
-            ) : (
+            ) : filter ? (
+              /* Filtered: 3-col grid of one category */
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {trends.map((trend, i) => (
-                  <TrendCard key={trend._id} trend={trend} index={i} onClick={() => setActiveTrendId(trend._id)} />
+                {trends.filter((t) => t.status === filter).map((trend, i) => (
+                  <TrendCard key={trend._id} trend={trend} index={i} onClick={() => router.push(`/trends/${trend._id}`)} />
                 ))}
+              </div>
+            ) : (
+              /* Default: one column per category */
+              <div className="grid gap-6" style={{ gridTemplateColumns: `repeat(${CATEGORIES.filter(c => trends.some(t => t.status === c.key)).length}, 1fr)` }}>
+                {CATEGORIES.map(({ key, label }) => {
+                  const cfg = STATUS_CONFIG[key];
+                  const col = trends.filter((t) => t.status === key);
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center gap-2 mb-3 pb-2 border-b" style={{ borderColor: "rgb(25,38,60)" }}>
+                        <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                        <span className={`text-xs font-mono font-bold ${cfg.color}`}>{label}</span>
+                        <span className="text-xs font-mono text-slate-500">{col.length}</span>
+                      </div>
+                      {col.length === 0 ? (
+                        <div className="text-xs font-mono text-slate-500 py-4 text-center">none</div>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          {col.map((trend, i) => (
+                            <TrendCard key={trend._id} trend={trend} index={i} onClick={() => router.push(`/trends/${trend._id}`)} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>
         )}
       </main>
 
-      {activePipelineStep && <PipelineModal step={activePipelineStep} onClose={() => setActivePipelineStep(null)} />}
-      {activeTrendId && <TrendDrawer trendId={activeTrendId} onClose={() => setActiveTrendId(null)} />}
     </div>
   );
 }

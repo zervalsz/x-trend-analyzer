@@ -16,27 +16,33 @@ posts = db["posts"]
 MIN_TREND_SIZE = 5
 
 
-def calculate_status(growth_rates: list[float], daily_sizes: list[int], median_engagement: float) -> str:
-    if len(growth_rates) < 1:
+def calculate_status(growth_rates: list[float], daily_sizes: list[int]) -> str:
+    days = len(daily_sizes)
+    if days < 2:
         return "emerging"
 
-    avg_growth = np.mean(growth_rates)
+    avg_growth = float(np.mean(growth_rates))
     latest_growth = growth_rates[-1]
-    latest_size = daily_sizes[-1]
+    peak_idx = int(np.argmax(daily_sizes))
+    peak_val = float(max(daily_sizes))
+    recent_avg = float(np.mean(daily_sizes[-3:])) if days >= 3 else float(daily_sizes[-1])
 
-    # cooling：明显持续下降才判为 cooling
+    # Launch spike then faded: peak was in first third, now well below it
+    if peak_idx <= max(1, days // 3) and recent_avg < peak_val * 0.55:
+        return "cooling" if avg_growth < -0.05 else "peak"
+
+    # Clear mid-trend peak, declining since
+    if peak_idx < days - 2 and recent_avg < peak_val * 0.7 and avg_growth < 0:
+        return "peak"
+
+    # Recently declining sharply
     if latest_growth < -0.3 and avg_growth < 0:
         return "cooling"
 
-    # peak：之前增长，但最新增长率接近 0 或轻微下降
-    if avg_growth > 0.2 and latest_growth <= 0.05:
-        return "peak"
-
-    # trending：增长率高 + size 够 + engagement 够
-    if avg_growth > 0.3 and latest_growth > 0.1 and latest_size >= 3 and median_engagement > 100:
+    # Established and still growing
+    if days >= 5 and avg_growth > 0.08:
         return "trending"
 
-    # 其余都是 emerging
     return "emerging"
 
 async def score_trend(trend: dict) -> dict:
@@ -92,7 +98,7 @@ async def score_trend(trend: dict) -> dict:
         "days_tracked": len(daily_sizes),
     }
 
-    status = calculate_status(growth_rates, daily_sizes, median_eng)
+    status = calculate_status(growth_rates, daily_sizes)
     return {"metrics": metrics, "status": status}
 
 

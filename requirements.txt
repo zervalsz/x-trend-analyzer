@@ -1,0 +1,8 @@
+motor
+python-dotenv
+openai
+hdbscan
+scikit-learn
+numpy
+supabase
+umap-learn
