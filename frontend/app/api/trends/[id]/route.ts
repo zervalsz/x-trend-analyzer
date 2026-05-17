@@ -42,6 +42,8 @@ export async function GET(
             post_id: p.post_id,
             text: p.text,
             author: p.author,
+            post_url: p.post_url ?? null,
+            source: p.source ?? "x",
             likes: p.likes ?? 0,
             retweets: p.retweets ?? 0,
             replies: p.replies ?? 0,

@@ -39,8 +39,12 @@ def calculate_status(growth_rates: list[float], daily_sizes: list[int]) -> str:
     if latest_growth < -0.3 and avg_growth < 0:
         return "cooling"
 
+    # Long-running with any positive growth → trending
+    if days >= 10 and avg_growth > 0:
+        return "trending"
+
     # Established and still growing
-    if days >= 5 and avg_growth > 0.08:
+    if days >= 5 and avg_growth > 0.05:
         return "trending"
 
     return "emerging"

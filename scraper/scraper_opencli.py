@@ -88,10 +88,14 @@ def run_opencli(query: str, limit: int) -> list[dict]:
 
 def normalize(raw: dict) -> dict | None:
     try:
+        post_id = str(raw.get("id", ""))
+        author = raw.get("author", "")
         return {
-            "post_id": str(raw.get("id", "")),
+            "post_id": post_id,
             "text": raw.get("text", ""),
-            "author": raw.get("author", ""),
+            "author": author,
+            "post_url": f"https://x.com/{author}/status/{post_id}" if author and post_id else None,
+            "source": "x",
             "author_followers": 0,
             "likes": int(raw.get("likes", 0) or 0),
             "retweets": 0,

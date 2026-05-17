@@ -168,16 +168,20 @@ Daily headlines in chronological order (earliest first):
 {summaries}
 
 RULES:
-1. summary: The trend's identity is defined by the FIRST headline (that's the original event).
-   - Start with what originally happened (from day 1).
-   - If later headlines show the discussion evolved significantly, add one clause: "...later expanding to X."
-   - Max 2 sentences. Must name the specific product/person/event — never generic.
-   GOOD: "OpenAI released GPT-5.5, which later sparked debate over its benchmark claims."
-   BAD:  "OpenAI continues to advance AI capabilities across multiple domains."
-2. keywords: 2-4 proper nouns only — the specific names that define this trend across all days.
+1. summary: One precise headline (10-15 words) anchored to the FIRST headline — the original event. Name the specific product/company/person.
+   GOOD: "OpenAI released GPT-5.5, sparking debate over benchmark claims."
+   BAD:  "OpenAI continues to advance AI capabilities."
+2. description: 3-5 sentences for someone reading this trend for the first time.
+   - Sentence 1: What originally happened (slightly more detail than the headline).
+   - Sentences 2-3: How the discussion evolved over the following days.
+   - Sentence 4 (optional): Notable community reaction, key implication, or broader context.
+   Always name specific products/companies/people. Never write generic descriptions.
+   GOOD: "Anthropic released Claude Code, a terminal-based AI coding CLI for developers. In the days following the launch, developers began sharing benchmarks and workflows, frequently comparing it against Cursor. Discussions later expanded to enterprise pricing and integration with CI/CD pipelines."
+   BAD:  "There has been sustained discussion about AI coding tools and their growing capabilities."
+3. keywords: 2-4 proper nouns only — the names that define this trend across all days.
 
 Respond ONLY with JSON:
-{{"keywords": ["Term1", "Term2"], "summary": "Specific 1-2 sentence summary anchored to the original event."}}"""
+{{"keywords": ["Term1", "Term2"], "summary": "Short headline 10-15 words.", "description": "3-5 sentences of detailed context."}}"""
 
 
 async def run_summarizer(force: bool = False):
@@ -255,6 +259,7 @@ async def run_trend_summarizer(force: bool = False):
                 {"$set": {
                     "keywords": result.get("keywords", []),
                     "summary": result.get("summary", ""),
+                    "description": result.get("description", ""),
                     "summarized_at": datetime.now(timezone.utc),
                 }}
             )

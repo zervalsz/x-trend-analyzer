@@ -14,6 +14,8 @@ interface Post {
   post_id: string;
   text: string;
   author: string;
+  post_url?: string | null;
+  source?: string;
   likes: number;
   retweets: number;
   replies: number;
@@ -34,6 +36,7 @@ interface Trend {
   status: string;
   keywords: string[];
   summary: string;
+  description?: string;
   metrics?: {
     growth_rate?: number;
     avg_engagement?: number;
@@ -204,7 +207,21 @@ function TopicRow({ topic }: { topic: Topic }) {
               <div className="text-xs font-mono text-slate-400 uppercase tracking-widest">Sample posts</div>
               {topic.posts.map((post) => (
                 <div key={post.post_id} className="rounded-lg p-4 border" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
-                  <div className="text-xs font-mono text-slate-400 mb-1.5">@{post.author}</div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-mono text-slate-400">
+                      {post.source === "hn" ? "HN/" : "@"}{post.author}
+                    </span>
+                    {post.post_url && (
+                      <a
+                        href={post.post_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-mono text-sky-400 hover:text-sky-300 transition-colors"
+                      >
+                        {post.source === "hn" ? "view on HN ↗" : "view on X ↗"}
+                      </a>
+                    )}
+                  </div>
                   <div className="text-sm text-slate-200 leading-relaxed mb-2.5">{post.text}</div>
                   <div className="flex gap-4 text-xs font-mono text-slate-400">
                     <span>♥ {post.likes}</span>
@@ -287,9 +304,14 @@ export default function TrendPage() {
             {/* Top section: summary + metrics */}
             <div className="grid grid-cols-5 gap-6">
               {/* Summary */}
-              <div className="col-span-3 rounded-xl p-6 border space-y-2" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
-                <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Summary</div>
-                <p className="text-base text-slate-200 leading-relaxed">{trend.summary}</p>
+              <div className="col-span-3 rounded-xl p-6 border space-y-3" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
+                <div className="text-xs font-mono text-slate-400 uppercase tracking-widest">Summary</div>
+                <p className="text-sm font-medium text-slate-200 leading-snug">{trend.summary}</p>
+                {trend.description && (
+                  <p className="text-sm text-slate-400 leading-relaxed border-t pt-3" style={{ borderColor: "rgb(30,45,65)" }}>
+                    {trend.description}
+                  </p>
+                )}
               </div>
 
               {/* Metrics */}
