@@ -65,8 +65,11 @@ AI_QUERIES = [
 LIMIT_PER_QUERY = 50
 
 
+NODE_BIN = "/home/wf/.nvm/versions/node/v20.20.2/bin/node"
+OPENCLI_BIN = "/home/wf/.nvm/versions/node/v20.20.2/bin/opencli"
+
 def run_opencli(query: str, limit: int) -> list[dict]:
-    cmd = ["opencli", "twitter", "search", query, "--limit", str(limit), "-f", "json"]
+    cmd = [NODE_BIN, OPENCLI_BIN, "twitter", "search", query, "--limit", str(limit), "-f", "json"]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
