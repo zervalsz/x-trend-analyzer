@@ -8,7 +8,7 @@ No auth required. Stores into the same posts collection as the X scraper.
 import asyncio
 import os
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -88,7 +88,7 @@ def normalize_hn(hit: dict) -> dict | None:
         return None
 
 
-async def fetch_hn_query(client: httpx.AsyncClient, query: str) -> list[dict]:
+async def fetch_hn_query(client: httpx.AsyncClient, query: str, since_ts: int) -> list[dict]:
     try:
         r = await client.get(
             HN_API,
@@ -96,6 +96,7 @@ async def fetch_hn_query(client: httpx.AsyncClient, query: str) -> list[dict]:
                 "query": query,
                 "tags": "story",
                 "hitsPerPage": HITS_PER_QUERY,
+                "numericFilters": f"created_at_i>{since_ts}",
             },
             timeout=30,
         )
@@ -109,10 +110,13 @@ async def fetch_hn_query(client: httpx.AsyncClient, query: str) -> list[dict]:
 async def run_hn_scrape():
     await posts_col.create_index("post_id", unique=True)
 
+    # Only fetch stories from the last 13 hours (runs twice daily, overlap for safety)
+    since_ts = int((datetime.now(timezone.utc) - timedelta(hours=13)).timestamp())
+
     total = 0
     async with httpx.AsyncClient() as client:
         for query in HN_QUERIES:
-            hits = await fetch_hn_query(client, query)
+            hits = await fetch_hn_query(client, query, since_ts)
             inserted = 0
             for hit in hits:
                 doc = normalize_hn(hit)
