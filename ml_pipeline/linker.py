@@ -19,41 +19,53 @@ def cosine_similarity(a, b):
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10))
 
 
-async def build_trend_centroid_cache() -> dict[str, tuple[dict, np.ndarray]]:
+async def build_trend_centroid_cache(today: datetime, max_gap_days: int = 3) -> dict[str, tuple[dict, np.ndarray]]:
     """
-    为所有现有 trend 建一个 {trend_id: (trend_doc, latest_centroid)} 缓存。
-    latest_centroid 取 trend 里最后一个 topic 的 centroid。
-    只需两次 DB 查询，跟 trend 数量无关。
+    Build {trend_id: (trend_doc, latest_centroid)} cache.
+    Only includes trends whose last topic is within max_gap_days of today —
+    trends that have been silent longer are considered closed and won't be extended.
     """
-    all_trends = await trends.find({}, {"_id": 1, "topic_ids": 1}).to_list(None)
+    stale_cutoff = today - timedelta(days=max_gap_days)
+
+    all_trends = await trends.find({}, {"_id": 1, "topic_ids": 1, "last_topic_date": 1}).to_list(None)
     if not all_trends:
         return {}
 
-    last_topic_ids = [
-        t["topic_ids"][-1] for t in all_trends if t.get("topic_ids")
+    # Filter out stale trends before doing DB lookups
+    active_trends = [
+        t for t in all_trends
+        if t.get("topic_ids") and (
+            t.get("last_topic_date") is None or
+            t["last_topic_date"].replace(tzinfo=timezone.utc) >= stale_cutoff
+        )
     ]
+
+    last_topic_ids = [t["topic_ids"][-1] for t in active_trends]
     last_topics = await topics.find(
         {"_id": {"$in": [ObjectId(tid) for tid in last_topic_ids]}},
-        {"_id": 1, "centroid": 1},
+        {"_id": 1, "centroid": 1, "date": 1},
     ).to_list(None)
-    topic_centroid_map = {str(t["_id"]): t.get("centroid") for t in last_topics}
+    topic_map = {str(t["_id"]): t for t in last_topics}
 
     cache = {}
-    for trend in all_trends:
-        if not trend.get("topic_ids"):
-            continue
+    for trend in active_trends:
         last_tid = trend["topic_ids"][-1]
-        centroid = topic_centroid_map.get(last_tid)
-        if centroid:
-            cache[str(trend["_id"])] = (trend, np.array(centroid))
+        t = topic_map.get(last_tid)
+        if not t or not t.get("centroid"):
+            continue
+        # Double-check recency using the topic's actual date
+        topic_date = t["date"].replace(tzinfo=timezone.utc) if t["date"].tzinfo is None else t["date"]
+        if topic_date < stale_cutoff:
+            continue
+        cache[str(trend["_id"])] = (trend, np.array(t["centroid"]))
     return cache
 
 
 async def run_linker(
     days: int = 16,
-    threshold: float = 0.65,
-    coherence_threshold: float = 0.70,  # was 0.82 — lower to allow trend extension
-    global_threshold: float = 0.80,    # was 0.85 — lower to catch same-day duplicates
+    threshold: float = 0.75,           # min similarity to link today→yesterday topic
+    coherence_threshold: float = 0.78, # min avg similarity to extend an existing trend
+    global_threshold: float = 0.83,    # min similarity for same-topic global merge
 ):
     now = datetime.now(timezone.utc)
 
@@ -71,13 +83,13 @@ async def run_linker(
 
         print(f"\n{today.date()} → {len(today_topics)} topics")
 
-        # 每天开始时重建缓存（包含到昨天为止所有已存在的 trend）
-        trend_cache = await build_trend_centroid_cache()
+        # 每天开始时重建缓存（只含 7 天内仍活跃的 trend）
+        trend_cache = await build_trend_centroid_cache(today)
 
         for today_topic in today_topics:
             today_vec = np.array(today_topic["centroid"])
 
-            # ── 全局查重：找所有现有 trend 里最相似的 ──────────────────────
+            # ── 全局查重：找所有现有活跃 trend 里最相似的 ──────────────────
             best_global_id, best_global_score = None, 0.0
             for tid, (_, centroid) in trend_cache.items():
                 score = cosine_similarity(today_vec, centroid)
@@ -86,7 +98,6 @@ async def run_linker(
                     best_global_id = tid
 
             if best_global_score >= global_threshold and best_global_id:
-                # 找到高度相似的已有 trend，直接合并进去
                 await trends.update_one(
                     {"_id": ObjectId(best_global_id)},
                     {
@@ -94,7 +105,6 @@ async def run_linker(
                         "$set": {"last_updated": datetime.now(timezone.utc), "last_topic_date": today},
                     },
                 )
-                # 更新缓存里这个 trend 的 latest centroid
                 trend_cache[best_global_id] = (trend_cache[best_global_id][0], today_vec)
                 print(
                     f"  cluster {today_topic['cluster_label']} → global merge "
@@ -102,7 +112,7 @@ async def run_linker(
                 )
                 continue
 
-            # ── 全局未命中，走原来的逐日匹配逻辑 ─────────────────────────
+            # ── 全局未命中，走逐日匹配逻辑 ────────────────────────────────
             if not yesterday_topics:
                 trend_doc = _new_trend([str(today_topic["_id"])], today)
                 result = await trends.insert_one(trend_doc)
@@ -128,7 +138,8 @@ async def run_linker(
                 )
 
                 if existing_trend:
-                    # Coherence check against last 3 topics only (allows gradual evolution)
+                    eid = str(existing_trend["_id"])
+                    # Coherence check against last 3 topics
                     trend_topic_ids = existing_trend.get("topic_ids", [])
                     recent_ids = trend_topic_ids[-3:]
                     trend_topics_docs = await topics.find(
@@ -149,7 +160,7 @@ async def run_linker(
                                 "$set": {"last_updated": datetime.now(timezone.utc), "last_topic_date": today},
                             },
                         )
-                        trend_cache[str(existing_trend["_id"])] = (existing_trend, today_vec)
+                        trend_cache[eid] = (existing_trend, today_vec)
                         print(f" → extended {existing_trend['_id']} (coherence={avg_sim:.3f})")
                     else:
                         trend_doc = _new_trend(

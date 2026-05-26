@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string; border: string }> = {
-  trending: { label: "Trending", color: "text-emerald-400", bg: "bg-emerald-400/10", dot: "bg-emerald-400", border: "border-emerald-400/40" },
-  emerging: { label: "Emerging", color: "text-sky-400",     bg: "bg-sky-400/10",     dot: "bg-sky-400",     border: "border-sky-400/40" },
-  peak:     { label: "Peak",     color: "text-amber-400",   bg: "bg-amber-400/10",   dot: "bg-amber-400",   border: "border-amber-400/40" },
-  cooling:  { label: "Cooling",  color: "text-slate-300",   bg: "bg-slate-400/10",   dot: "bg-slate-400",   border: "border-slate-500" },
+  trending: { label: "Trending", color: "text-emerald-700", bg: "bg-emerald-50",  dot: "bg-emerald-500", border: "border-emerald-200" },
+  emerging: { label: "Emerging", color: "text-sky-700",     bg: "bg-sky-50",      dot: "bg-sky-500",     border: "border-sky-200"     },
+  peak:     { label: "Peak",     color: "text-amber-700",   bg: "bg-amber-50",    dot: "bg-amber-500",   border: "border-amber-200"   },
+  cooling:  { label: "Cooling",  color: "text-slate-500",   bg: "bg-slate-100",   dot: "bg-slate-400",   border: "border-slate-300"   },
 };
 
 interface Post {
@@ -47,15 +47,8 @@ interface Trend {
   topics?: Topic[];
 }
 
-function KwTag({ kw, large }: { kw: string; large?: boolean }) {
-  return (
-    <span
-      className={`rounded font-mono text-slate-200 ${large ? "text-sm px-3 py-1" : "text-xs px-2 py-0.5"}`}
-      style={{ backgroundColor: "rgb(25,38,62)", border: "1px solid rgb(45,60,85)" }}
-    >
-      {kw}
-    </span>
-  );
+function fmtDate(d: string | Date) {
+  return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 // ─── Line Chart ───────────────────────────────────────────────────────────────
@@ -103,11 +96,11 @@ function DailyPostChart({ topics, height = 140 }: { topics: Topic[]; height?: nu
       style={{ width: "100%", display: "block" }}
       onMouseLeave={() => setHovered(null)}
     >
-      {areaPath && <path d={areaPath} fill="rgb(56,189,248)" opacity={0.07} />}
+      {areaPath && <path d={areaPath} fill="rgb(14,165,233)" opacity={0.08} />}
       <polyline
         points={linePoints}
         fill="none"
-        stroke="rgb(56,189,248)"
+        stroke="rgb(14,165,233)"
         strokeWidth={2}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -116,10 +109,9 @@ function DailyPostChart({ topics, height = 140 }: { topics: Topic[]; height?: nu
         const cx = getX(i);
         const cy = getY(topic.size);
         const isHov = hovered === i;
-        const dateStr = new Date(topic.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        const dateStr = new Date(topic.date).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
         const ttW = 90;
         const ttX = Math.max(2, Math.min(cx - ttW / 2, VW - ttW - 2));
-        // flip tooltip below the point if near the top of the chart
         const nearTop = cy < PAD_TOP + 55;
         const ttY = nearTop ? cy + 10 : cy - 50;
 
@@ -137,29 +129,29 @@ function DailyPostChart({ topics, height = 140 }: { topics: Topic[]; height?: nu
             {isHov && (
               <line
                 x1={cx} y1={PAD_TOP} x2={cx} y2={PAD_TOP + CHART_H}
-                stroke="rgb(56,189,248)" strokeWidth={1} strokeDasharray="3 2" opacity={0.35}
+                stroke="rgb(14,165,233)" strokeWidth={1} strokeDasharray="3 2" opacity={0.35}
               />
             )}
             <circle
               cx={cx} cy={cy}
               r={isHov ? 6 : 4}
-              fill={isHov ? "rgb(56,189,248)" : "rgb(15,25,45)"}
-              stroke="rgb(56,189,248)"
+              fill={isHov ? "rgb(14,165,233)" : "#ffffff"}
+              stroke="rgb(14,165,233)"
               strokeWidth={isHov ? 2 : 1.5}
             />
             {isHov && (
               <g>
                 <rect x={ttX} y={ttY} width={ttW} height={38} rx={4}
-                  fill="rgb(20,32,52)" stroke="rgb(45,62,88)" strokeWidth={1} />
+                  fill="#f8fafc" stroke="#e2e8f0" strokeWidth={1} />
                 <text x={ttX + ttW / 2} y={ttY + 15} textAnchor="middle" fontSize={11}
                   fontFamily="monospace" fill="rgb(100,116,139)">{dateStr}</text>
                 <text x={ttX + ttW / 2} y={ttY + 30} textAnchor="middle" fontSize={13}
-                  fontFamily="monospace" fill="rgb(56,189,248)" fontWeight="bold">{topic.size} posts</text>
+                  fontFamily="monospace" fill="rgb(14,165,233)" fontWeight="bold">{topic.size} posts</text>
               </g>
             )}
             {i % labelEvery === 0 && (
               <text x={cx} y={PAD_TOP + CHART_H + 18} textAnchor="middle" fontSize={10}
-                fontFamily="monospace" fill={isHov ? "rgb(148,163,184)" : "rgb(71,85,105)"}>
+                fontFamily="monospace" fill={isHov ? "rgb(71,85,105)" : "rgb(148,163,184)"}>
                 {dateStr}
               </text>
             )}
@@ -170,69 +162,94 @@ function DailyPostChart({ topics, height = 140 }: { topics: Topic[]; height?: nu
   );
 }
 
-// ─── Topic Row ────────────────────────────────────────────────────────────────
+// ─── Day Group (one row per date, merges multiple same-day topics) ────────────
 
-function TopicRow({ topic }: { topic: Topic }) {
+function PostCard({ post }: { post: Post }) {
+  return (
+    <div className="rounded-lg p-4 border bg-white" style={{ borderColor: "#e2e8f0" }}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-mono text-slate-500">
+          {post.source === "hn" ? "HN/" : "@"}{post.author}
+        </span>
+        {post.post_url && (
+          <a
+            href={post.post_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-mono text-sky-600 hover:text-sky-500 transition-colors"
+          >
+            {post.source === "hn" ? "view on HN ↗" : "view on X ↗"}
+          </a>
+        )}
+      </div>
+      <div className="text-sm text-slate-700 leading-relaxed mb-2.5">{post.text}</div>
+      <div className="flex gap-4 text-xs font-mono text-slate-400">
+        <span>♥ {post.likes}</span>
+        <span>↺ {post.retweets}</span>
+        <span>💬 {post.replies}</span>
+        {post.views > 0 && <span>👁 {post.views.toLocaleString()}</span>}
+      </div>
+    </div>
+  );
+}
+
+function DayGroup({ topics }: { topics: Topic[] }) {
   const [expanded, setExpanded] = useState(false);
-  const dateStr = new Date(topic.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const dateStr = new Date(topics[0].date).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+  const totalPosts = topics.reduce((s, t) => s + t.size, 0);
+  const allPosts = topics.flatMap((t) => t.posts ?? []);
 
   return (
-    <div className="rounded-xl border overflow-hidden" style={{ borderColor: "rgb(30,45,65)" }}>
+    <div className="rounded-xl border overflow-hidden bg-white" style={{ borderColor: "#e2e8f0" }}>
       <button
-        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-white/5 transition-colors"
-        style={{ backgroundColor: "rgb(10,18,30)" }}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <div className="flex items-center gap-4 min-w-0">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
           <span className="text-xs font-mono text-slate-400 shrink-0 w-12">{dateStr}</span>
-          <div className="flex gap-1.5 flex-wrap">
-            {topic.keywords?.length > 0
-              ? topic.keywords.map((kw) => <KwTag key={kw} kw={kw} />)
-              : <span className="text-xs text-slate-500 font-mono">no keywords</span>}
+          <div className="min-w-0 flex-1">
+            {topics.length === 1 ? (
+              <span className="text-sm text-slate-700 leading-snug truncate block">
+                {topics[0].summary || "no summary"}
+              </span>
+            ) : (
+              <div className="space-y-1">
+                {topics.map((t) => (
+                  <p key={t._id} className="text-sm text-slate-700 leading-snug truncate">
+                    · {t.summary || "no summary"}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-4">
-          <span className="text-xs font-mono text-slate-400">{topic.size} posts</span>
+          <span className="text-xs font-mono text-slate-400">{totalPosts} posts</span>
           <span className="text-slate-400 font-mono text-xs">{expanded ? "▲" : "▼"}</span>
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t px-5 py-4 space-y-4" style={{ borderColor: "rgb(30,45,65)", backgroundColor: "rgb(8,14,26)" }}>
-          {topic.summary && (
-            <p className="text-sm text-slate-300 leading-relaxed">{topic.summary}</p>
-          )}
-          {topic.posts?.length > 0 && (
-            <div className="space-y-3">
-              <div className="text-xs font-mono text-slate-400 uppercase tracking-widest">Sample posts</div>
-              {topic.posts.map((post) => (
-                <div key={post.post_id} className="rounded-lg p-4 border" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-mono text-slate-400">
-                      {post.source === "hn" ? "HN/" : "@"}{post.author}
-                    </span>
-                    {post.post_url && (
-                      <a
-                        href={post.post_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-mono text-sky-400 hover:text-sky-300 transition-colors"
-                      >
-                        {post.source === "hn" ? "view on HN ↗" : "view on X ↗"}
-                      </a>
-                    )}
-                  </div>
-                  <div className="text-sm text-slate-200 leading-relaxed mb-2.5">{post.text}</div>
-                  <div className="flex gap-4 text-xs font-mono text-slate-400">
-                    <span>♥ {post.likes}</span>
-                    <span>↺ {post.retweets}</span>
-                    <span>💬 {post.replies}</span>
-                    {post.views > 0 && <span>👁 {post.views.toLocaleString()}</span>}
-                  </div>
+        <div className="border-t px-5 py-4 space-y-4" style={{ borderColor: "#e2e8f0", backgroundColor: "#f8fafc" }}>
+          {topics.map((topic, i) => (
+            <div key={topic._id}>
+              {topics.length > 1 && topic.summary && (
+                <p className="text-sm font-medium text-slate-700 mb-2">{topic.summary}</p>
+              )}
+              {topics.length === 1 && topic.summary && (
+                <p className="text-sm text-slate-600 leading-relaxed mb-3">{topic.summary}</p>
+              )}
+              {(topic.posts?.length > 0) && (
+                <div className="space-y-2">
+                  <div className="text-xs font-mono text-slate-400 uppercase tracking-widest">Sample posts</div>
+                  {topic.posts.map((post) => <PostCard key={post.post_id} post={post} />)}
                 </div>
-              ))}
+              )}
+              {topics.length > 1 && i < topics.length - 1 && (
+                <div className="border-b my-3" style={{ borderColor: "#e2e8f0" }} />
+              )}
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>
@@ -259,14 +276,23 @@ export default function TrendPage() {
   const metrics = trend?.metrics ?? {};
   const growthRate = metrics.growth_rate ?? 0;
 
+  const topicTimes = (trend?.topics ?? []).map(t => new Date(t.date).getTime());
+  const dateRange = topicTimes.length > 0 ? (() => {
+    const first = new Date(Math.min(...topicTimes));
+    const last  = new Date(Math.max(...topicTimes));
+    return first.getTime() === last.getTime()
+      ? fmtDate(first)
+      : `${fmtDate(first)} – ${fmtDate(last)}`;
+  })() : null;
+
   return (
-    <div className="min-h-screen text-slate-100" style={{ backgroundColor: "rgb(8,14,26)" }}>
+    <div className="min-h-screen text-slate-800 bg-slate-50">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b backdrop-blur-sm" style={{ borderColor: "rgb(25,38,60)", backgroundColor: "rgba(8,14,26,0.95)" }}>
+      <header className="sticky top-0 z-10 border-b backdrop-blur-sm bg-white/90" style={{ borderColor: "#e2e8f0" }}>
         <div className="max-w-6xl mx-auto px-8 py-4 flex items-center justify-between">
           <button
             onClick={() => router.back()}
-            className="flex items-center gap-2 text-sm font-mono text-slate-400 hover:text-slate-200 transition-colors"
+            className="flex items-center gap-2 text-sm font-mono text-slate-500 hover:text-slate-800 transition-colors"
           >
             <span>←</span>
             <span>Back</span>
@@ -278,12 +304,12 @@ export default function TrendPage() {
                 <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
                 {config.label}
               </span>
-              {metrics.days_tracked && (
-                <span className="text-xs font-mono text-slate-400">{metrics.days_tracked}d tracked</span>
+              {dateRange && (
+                <span className="text-xs font-mono text-slate-500">{dateRange}</span>
               )}
-              <div className="flex gap-1.5 flex-wrap">
-                {(trend.keywords ?? []).map((kw) => <KwTag key={kw} kw={kw} />)}
-              </div>
+              {metrics.days_tracked && (
+                <span className="text-xs font-mono text-slate-500">{metrics.days_tracked}d tracked</span>
+              )}
             </div>
           )}
         </div>
@@ -304,11 +330,11 @@ export default function TrendPage() {
             {/* Top section: summary + metrics */}
             <div className="grid grid-cols-5 gap-6">
               {/* Summary */}
-              <div className="col-span-3 rounded-xl p-6 border space-y-3" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
+              <div className="col-span-3 rounded-xl p-6 border bg-white space-y-3" style={{ borderColor: "#e2e8f0" }}>
                 <div className="text-xs font-mono text-slate-400 uppercase tracking-widest">Summary</div>
-                <p className="text-sm font-medium text-slate-200 leading-snug">{trend.summary}</p>
+                <p className="text-sm font-medium text-slate-800 leading-snug">{trend.summary}</p>
                 {trend.description && (
-                  <p className="text-sm text-slate-400 leading-relaxed border-t pt-3" style={{ borderColor: "rgb(30,45,65)" }}>
+                  <p className="text-sm text-slate-500 leading-relaxed border-t pt-3" style={{ borderColor: "#e2e8f0" }}>
                     {trend.description}
                   </p>
                 )}
@@ -322,9 +348,9 @@ export default function TrendPage() {
                   { label: "velocity", value: `${(metrics.velocity ?? 0) >= 0 ? "+" : ""}${metrics.velocity ?? "—"}`, positive: (metrics.velocity ?? 0) >= 0 },
                   { label: "days tracked", value: `${metrics.days_tracked ?? "—"}d`, positive: true },
                 ].map((m) => (
-                  <div key={m.label} className="rounded-xl p-4 border" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
+                  <div key={m.label} className="rounded-xl p-4 border bg-white" style={{ borderColor: "#e2e8f0" }}>
                     <div className="text-xs font-mono text-slate-400 mb-2">{m.label}</div>
-                    <div className={`text-2xl font-bold font-mono ${m.positive ? config.color : "text-red-400"}`}>{m.value}</div>
+                    <div className={`text-2xl font-bold font-mono ${m.positive ? config.color : "text-red-500"}`}>{m.value}</div>
                   </div>
                 ))}
               </div>
@@ -332,27 +358,37 @@ export default function TrendPage() {
 
             {/* Chart */}
             {trend.topics && trend.topics.length > 0 && (
-              <div className="rounded-xl p-6 border" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
+              <div className="rounded-xl p-6 border bg-white" style={{ borderColor: "#e2e8f0" }}>
                 <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-4">Daily Posts</div>
                 <DailyPostChart topics={trend.topics} height={160} />
               </div>
             )}
 
             {/* Topic Timeline */}
-            {trend.topics && trend.topics.length > 0 && (
-              <div>
-                <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-4">
-                  Topic Timeline · {trend.topics.length} days
-                </div>
-                <div className="space-y-2">
-                  {[...trend.topics]
-                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                    .map((topic) => (
-                      <TopicRow key={topic._id} topic={topic} />
+            {trend.topics && trend.topics.length > 0 && (() => {
+              // Group topics by UTC date so same-day clusters appear as one row
+              const byDate = new Map<string, Topic[]>();
+              [...trend.topics]
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                .forEach((t) => {
+                  const dk = new Date(t.date).toISOString().slice(0, 10);
+                  if (!byDate.has(dk)) byDate.set(dk, []);
+                  byDate.get(dk)!.push(t);
+                });
+              const days = [...byDate.entries()];
+              return (
+                <div>
+                  <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-4">
+                    Topic Timeline · {days.length} days
+                  </div>
+                  <div className="space-y-2">
+                    {days.map(([dk, dayTopics]) => (
+                      <DayGroup key={dk} topics={dayTopics} />
                     ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
       </main>

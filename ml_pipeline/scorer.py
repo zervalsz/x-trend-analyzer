@@ -35,15 +35,19 @@ def calculate_status(growth_rates: list[float], daily_sizes: list[int]) -> str:
     if peak_idx < days - 2 and recent_avg < peak_val * 0.7 and avg_growth < 0:
         return "peak"
 
-    # Recently declining sharply
-    if latest_growth < -0.3 and avg_growth < 0:
+    # Recently declining sharply (only meaningful if it had real traction first)
+    if days >= 5 and latest_growth < -0.3 and avg_growth < 0:
         return "cooling"
 
     # Long-running with any positive growth → trending
     if days >= 10 and avg_growth > 0:
         return "trending"
 
-    # Established and still growing
+    # Established and stable or growing (sustained attention ≥ 7 days)
+    if days >= 7 and avg_growth > -0.05:
+        return "trending"
+
+    # Growing meaningfully in shorter window
     if days >= 5 and avg_growth > 0.05:
         return "trending"
 

@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string; border: string }> = {
-  trending: { label: "Trending", color: "text-emerald-400", bg: "bg-emerald-400/10", dot: "bg-emerald-400", border: "border-emerald-400/40" },
-  emerging: { label: "Emerging", color: "text-sky-400",     bg: "bg-sky-400/10",     dot: "bg-sky-400",     border: "border-sky-400/40" },
-  peak:     { label: "Peak",     color: "text-amber-400",   bg: "bg-amber-400/10",   dot: "bg-amber-400",   border: "border-amber-400/40" },
-  cooling:  { label: "Cooling",  color: "text-slate-300",   bg: "bg-slate-400/10",   dot: "bg-slate-400",   border: "border-slate-500" },
+  trending: { label: "Trending", color: "text-emerald-700", bg: "bg-emerald-50",  dot: "bg-emerald-500", border: "border-emerald-200" },
+  emerging: { label: "Emerging", color: "text-sky-700",     bg: "bg-sky-50",      dot: "bg-sky-500",     border: "border-sky-200"     },
+  peak:     { label: "Peak",     color: "text-amber-700",   bg: "bg-amber-50",    dot: "bg-amber-500",   border: "border-amber-200"   },
+  cooling:  { label: "Cooling",  color: "text-slate-500",   bg: "bg-slate-100",   dot: "bg-slate-400",   border: "border-slate-300"   },
 };
 
 interface Post {
@@ -36,6 +36,7 @@ interface Trend {
   status: string;
   keywords: string[];
   summary: string;
+  last_topic_date?: string;
   metrics?: {
     growth_rate?: number;
     avg_engagement?: number;
@@ -69,14 +70,8 @@ interface DailyHot {
   topics: HotTopic[];
 }
 
-// ─── Shared keyword tag ───────────────────────────────────────────────────────
-
-function KwTag({ kw }: { kw: string }) {
-  return (
-    <span className="text-xs px-2 py-0.5 rounded font-mono text-slate-200" style={{ backgroundColor: "rgb(25,38,62)", border: "1px solid rgb(45,60,85)" }}>
-      {kw}
-    </span>
-  );
+function fmtDate(d: string | Date) {
+  return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 // ─── Daily Post Chart ─────────────────────────────────────────────────────────
@@ -97,8 +92,8 @@ function DailyPostChart({ topics }: { topics: Topic[] }) {
 
   const VW = 400;
   const PAD_X = 16;
-  const PAD_TOP = 24;   // room for tooltip above top dot
-  const PAD_BTM = 24;   // room for date labels
+  const PAD_TOP = 24;
+  const PAD_BTM = 24;
   const CHART_H = 90;
   const VH = PAD_TOP + CHART_H + PAD_BTM;
 
@@ -121,7 +116,6 @@ function DailyPostChart({ topics }: { topics: Topic[] }) {
         ` L ${getX(sorted.length - 1)},${PAD_TOP + CHART_H} Z`
       : "";
 
-  // Only label every Nth date to avoid crowding
   const labelEvery = sorted.length > 10 ? 3 : sorted.length > 6 ? 2 : 1;
 
   return (
@@ -131,22 +125,19 @@ function DailyPostChart({ topics }: { topics: Topic[] }) {
         style={{ width: "100%", display: "block" }}
         onMouseLeave={() => setHovered(null)}
       >
-        {/* Area fill under line */}
         {areaPath && (
-          <path d={areaPath} fill="rgb(56,189,248)" opacity={0.07} />
+          <path d={areaPath} fill="rgb(14,165,233)" opacity={0.08} />
         )}
 
-        {/* Line */}
         <polyline
           points={linePoints}
           fill="none"
-          stroke="rgb(56,189,248)"
+          stroke="rgb(14,165,233)"
           strokeWidth={2}
           strokeLinejoin="round"
           strokeLinecap="round"
         />
 
-        {/* Per-point hover targets + dots + labels */}
         {sorted.map((topic, i) => {
           const cx = getX(i);
           const cy = getY(topic.size);
@@ -154,15 +145,14 @@ function DailyPostChart({ topics }: { topics: Topic[] }) {
           const dateStr = new Date(topic.date).toLocaleDateString(undefined, {
             month: "short",
             day: "numeric",
+            timeZone: "UTC",
           });
 
-          // Clamp tooltip box so it doesn't overflow left/right
           const ttW = 72;
           const ttX = Math.max(2, Math.min(cx - ttW / 2, VW - ttW - 2));
 
           return (
             <g key={topic._id}>
-              {/* Wide invisible hover band */}
               <rect
                 x={cx - (VW / sorted.length) / 2}
                 y={PAD_TOP}
@@ -173,39 +163,36 @@ function DailyPostChart({ topics }: { topics: Topic[] }) {
                 onMouseEnter={() => setHovered(i)}
               />
 
-              {/* Vertical guide */}
               {isHov && (
                 <line
                   x1={cx} y1={PAD_TOP}
                   x2={cx} y2={PAD_TOP + CHART_H}
-                  stroke="rgb(56,189,248)"
+                  stroke="rgb(14,165,233)"
                   strokeWidth={1}
                   strokeDasharray="3 2"
                   opacity={0.35}
                 />
               )}
 
-              {/* Dot */}
               <circle
                 cx={cx} cy={cy}
                 r={isHov ? 5 : 3}
-                fill={isHov ? "rgb(56,189,248)" : "rgb(15,25,45)"}
-                stroke="rgb(56,189,248)"
+                fill={isHov ? "rgb(14,165,233)" : "#ffffff"}
+                stroke="rgb(14,165,233)"
                 strokeWidth={isHov ? 2 : 1.5}
               />
 
-              {/* Tooltip */}
               {isHov && (
                 <g>
                   <rect
                     x={ttX} y={cy - 42}
                     width={ttW} height={34}
                     rx={4}
-                    fill="rgb(20,32,52)"
-                    stroke="rgb(45,62,88)"
+                    fill="#f8fafc"
+                    stroke="#e2e8f0"
                     strokeWidth={1}
                   />
-                  <text x={ttX + ttW / 2} y={cy - 26} textAnchor="middle" fontSize={11} fontFamily="monospace" fill="rgb(56,189,248)">
+                  <text x={ttX + ttW / 2} y={cy - 26} textAnchor="middle" fontSize={11} fontFamily="monospace" fill="rgb(14,165,233)">
                     {topic.size} posts
                   </text>
                   <text x={ttX + ttW / 2} y={cy - 13} textAnchor="middle" fontSize={10} fontFamily="monospace" fill="rgb(100,116,139)">
@@ -214,14 +201,13 @@ function DailyPostChart({ topics }: { topics: Topic[] }) {
                 </g>
               )}
 
-              {/* Date label on X axis */}
               {i % labelEvery === 0 && (
                 <text
                   x={cx} y={PAD_TOP + CHART_H + 16}
                   textAnchor="middle"
                   fontSize={9}
                   fontFamily="monospace"
-                  fill={isHov ? "rgb(148,163,184)" : "rgb(71,85,105)"}
+                  fill={isHov ? "rgb(71,85,105)" : "rgb(148,163,184)"}
                 >
                   {dateStr}
                 </text>
@@ -234,185 +220,7 @@ function DailyPostChart({ topics }: { topics: Topic[] }) {
   );
 }
 
-// ─── Trend Modal ──────────────────────────────────────────────────────────────
-
-function TrendDrawer({ trendId, onClose }: { trendId: string; onClose: () => void }) {
-  const [trend, setTrend] = useState<Trend | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/trends/${trendId}`)
-      .then((r) => r.json())
-      .then((d) => { setTrend(d); setLoading(false); });
-  }, [trendId]);
-
-  const config = trend ? (STATUS_CONFIG[trend.status] || STATUS_CONFIG.emerging) : STATUS_CONFIG.emerging;
-  const metrics = trend?.metrics ?? {};
-  const growthRate = metrics.growth_rate ?? 0;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div
-        className="relative w-full max-w-4xl max-h-[88vh] rounded-2xl border flex flex-col overflow-hidden"
-        style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {loading ? (
-          <div className="flex items-center justify-center h-64 text-slate-400 font-mono text-sm animate-pulse">
-            loading trend data...
-          </div>
-        ) : trend ? (
-          <>
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: "rgb(30,45,65)" }}>
-              <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border ${config.bg} ${config.color} ${config.border}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
-                  {config.label}
-                </span>
-                {metrics.days_tracked && (
-                  <span className="text-xs font-mono text-slate-400">{metrics.days_tracked}d tracked</span>
-                )}
-                <div className="flex flex-wrap gap-1.5">
-                  {(trend.keywords ?? []).map((kw) => <KwTag key={kw} kw={kw} />)}
-                </div>
-              </div>
-              <button onClick={onClose} className="text-slate-400 hover:text-slate-200 font-mono text-lg shrink-0 ml-4">✕</button>
-            </div>
-
-            {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1">
-              {/* Two-column layout: left = summary + chart, right = timeline */}
-              <div className="grid grid-cols-5 divide-x" style={{ borderColor: "rgb(30,45,65)" }}>
-
-                {/* Left column */}
-                <div className="col-span-3 px-6 py-5 space-y-6">
-                  {/* Summary */}
-                  {trend.summary && (
-                    <div>
-                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-2">Summary</div>
-                      <p className="text-sm text-slate-200 leading-relaxed">{trend.summary}</p>
-                    </div>
-                  )}
-
-                  {/* Metrics */}
-                  {metrics.days_tracked && (
-                    <div>
-                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Metrics</div>
-                      <div className="grid grid-cols-2 gap-3">
-                        {[
-                          { label: "growth rate", value: `${growthRate >= 0 ? "+" : ""}${(growthRate * 100).toFixed(0)}%`, positive: growthRate >= 0 },
-                          { label: "avg engagement", value: metrics.avg_engagement?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "—", positive: true },
-                          { label: "velocity", value: `${(metrics.velocity ?? 0) >= 0 ? "+" : ""}${metrics.velocity ?? "—"}`, positive: (metrics.velocity ?? 0) >= 0 },
-                          { label: "days tracked", value: `${metrics.days_tracked}d`, positive: true },
-                        ].map((m) => (
-                          <div key={m.label} className="rounded-lg p-3 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-                            <div className="text-xs font-mono text-slate-400 mb-1">{m.label}</div>
-                            <div className={`text-lg font-bold font-mono ${m.positive ? config.color : "text-red-400"}`}>{m.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Daily post chart */}
-                  {trend.topics && trend.topics.length > 0 && (
-                    <div>
-                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Daily Posts</div>
-                      <div className="rounded-lg p-4 border" style={{ backgroundColor: "rgb(8,14,26)", borderColor: "rgb(30,45,65)" }}>
-                        <DailyPostChart topics={trend.topics} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right column: topic timeline */}
-                <div className="col-span-2 px-5 py-5 border-l" style={{ borderColor: "rgb(30,45,65)" }}>
-                  {trend.topics && trend.topics.length > 0 ? (
-                    <>
-                      <div className="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">
-                        Topic Timeline · {trend.topics.length} days
-                      </div>
-                      <div className="space-y-2">
-                        {trend.topics.map((topic) => {
-                          const isExpanded = expandedTopic === topic._id;
-                          const dateStr = new Date(topic.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-                          return (
-                            <div key={topic._id} className="rounded-lg border overflow-hidden" style={{ borderColor: "rgb(30,45,65)" }}>
-                              <button
-                                className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-white/5 transition-colors"
-                                style={{ backgroundColor: "rgb(10,18,30)" }}
-                                onClick={() => setExpandedTopic(isExpanded ? null : topic._id)}
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-xs font-mono text-slate-400 shrink-0">{dateStr}</span>
-                                  <div className="flex gap-1 flex-wrap">
-                                    {topic.keywords?.length > 0
-                                      ? topic.keywords.slice(0, 2).map((kw) => <KwTag key={kw} kw={kw} />)
-                                      : <span className="text-xs text-slate-500 font-mono">no keywords</span>}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                                  <span className="text-xs font-mono text-slate-400">{topic.size}</span>
-                                  <span className="text-slate-400 font-mono text-xs">{isExpanded ? "▲" : "▼"}</span>
-                                </div>
-                              </button>
-
-                              {isExpanded && (
-                                <div className="border-t px-3 py-3 space-y-2" style={{ borderColor: "rgb(30,45,65)", backgroundColor: "rgb(8,14,26)" }}>
-                                  {topic.summary && (
-                                    <p className="text-xs text-slate-300 leading-relaxed">{topic.summary}</p>
-                                  )}
-                                  {topic.posts?.length > 0 && (
-                                    <div className="space-y-2 mt-2">
-                                      <div className="text-xs font-mono text-slate-400">sample posts</div>
-                                      {topic.posts.map((post) => (
-                                        <div key={post.post_id} className="rounded-lg p-2.5 border" style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}>
-                                          <div className="text-xs font-mono text-slate-400 mb-1">@{post.author}</div>
-                                          <div className="text-xs text-slate-200 leading-relaxed mb-1.5">{post.text}</div>
-                                          <div className="flex gap-3 text-xs font-mono text-slate-400">
-                                            <span>♥ {post.likes}</span>
-                                            <span>↺ {post.retweets}</span>
-                                            {post.views > 0 && <span>👁 {post.views.toLocaleString()}</span>}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-slate-500 font-mono text-xs">
-                      no topic data
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-center h-64 text-slate-400 font-mono text-sm">trend not found</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Daily Hot Section ────────────────────────────────────────────────────────
-
-const STATUS_DOT: Record<string, string> = {
-  trending: "bg-emerald-400",
-  emerging: "bg-sky-400",
-  peak:     "bg-amber-400",
-  cooling:  "bg-slate-400",
-};
 
 function DailyHotSection({ days, onTopicClick }: { days: DailyHot[]; onTopicClick: (trendId: string) => void }) {
   if (!days.length) return null;
@@ -430,35 +238,41 @@ function DailyHotSection({ days, onTopicClick }: { days: DailyHot[]; onTopicClic
               key={date}
               className="rounded-xl border flex flex-col"
               style={{
-                backgroundColor: isToday ? "rgb(12,22,38)" : "rgb(10,18,30)",
-                borderColor: isToday ? "rgba(56,189,248,0.3)" : "rgb(30,45,65)",
+                backgroundColor: isToday ? "#f0f9ff" : "#ffffff",
+                borderColor: isToday ? "rgba(14,165,233,0.4)" : "#e2e8f0",
               }}
             >
-              <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "rgb(30,45,65)" }}>
-                <span className="text-xs font-mono font-bold" style={{ color: isToday ? "rgb(56,189,248)" : "rgb(148,163,184)" }}>
+              <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: isToday ? "rgba(14,165,233,0.2)" : "#e2e8f0" }}>
+                <span className="text-xs font-mono font-bold" style={{ color: isToday ? "rgb(14,165,233)" : "rgb(71,85,105)" }}>
                   {dateLabel}
                 </span>
-                {isToday && <span className="text-xs font-mono text-sky-400 opacity-60">today</span>}
+                {isToday && <span className="text-xs font-mono text-sky-500 opacity-70">today</span>}
               </div>
               <div className="flex flex-col">
-                {topics.map((topic, i) => (
-                  <button
-                    key={topic._id}
-                    className="flex items-start gap-2 px-3 py-2.5 text-left hover:bg-white/5 transition-colors w-full border-t"
-                    style={{ borderColor: "rgb(20,32,52)" }}
-                    onClick={() => topic.trend_id && onTopicClick(topic.trend_id)}
-                    disabled={!topic.trend_id}
-                  >
-                    <span className="text-xs font-mono text-slate-500 mt-0.5 shrink-0">#{i + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs text-slate-200 leading-snug line-clamp-2">{topic.summary}</p>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[topic.trend_status] ?? STATUS_DOT.emerging}`} />
-                        <span className="text-xs font-mono text-slate-500">{topic.size} posts</span>
+                {topics.map((topic, i) => {
+                  const cfg = STATUS_CONFIG[topic.trend_status] ?? STATUS_CONFIG.emerging;
+                  return (
+                    <button
+                      key={topic._id}
+                      className="flex items-start gap-2 px-3 py-2.5 text-left hover:bg-slate-50 transition-colors w-full border-t"
+                      style={{ borderColor: "#f1f5f9" }}
+                      onClick={() => topic.trend_id && onTopicClick(topic.trend_id)}
+                      disabled={!topic.trend_id}
+                    >
+                      <span className="text-xs font-mono text-slate-400 mt-0.5 shrink-0">#{i + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-slate-700 leading-snug line-clamp-2 mb-1.5">{topic.summary}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+                            <span className={`w-1 h-1 rounded-full ${cfg.dot}`} />
+                            {cfg.label}
+                          </span>
+                          <span className="text-xs font-mono text-slate-400">{topic.size} posts</span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );
@@ -471,6 +285,7 @@ function DailyHotSection({ days, onTopicClick }: { days: DailyHot[]; onTopicClic
 // ─── Trend Card ───────────────────────────────────────────────────────────────
 
 function TrendCard({ trend, index, onClick }: { trend: Trend; index: number; onClick: () => void }) {
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const config = STATUS_CONFIG[trend.status] || STATUS_CONFIG.emerging;
   const metrics = trend.metrics ?? {};
   const avgEngagement = metrics.avg_engagement ?? 0;
@@ -482,14 +297,14 @@ function TrendCard({ trend, index, onClick }: { trend: Trend; index: number; onC
 
   return (
     <button
-      className="relative rounded-xl p-5 border transition-all duration-200 hover:translate-y-[-2px] hover:border-slate-500 flex flex-col text-left w-full cursor-pointer"
-      style={{ backgroundColor: "rgb(10,18,30)", borderColor: "rgb(30,45,65)" }}
+      className="relative rounded-xl p-5 border transition-all duration-200 hover:translate-y-[-2px] hover:shadow-md hover:border-slate-300 flex flex-col text-left w-full cursor-pointer bg-white"
+      style={{ borderColor: "#e2e8f0" }}
       onClick={onClick}
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-slate-500 text-xs font-mono">#{String(index + 1).padStart(2, "0")}</span>
+          <span className="text-slate-400 text-xs font-mono">#{String(index + 1).padStart(2, "0")}</span>
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border ${config.bg} ${config.color} ${config.border}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
             {config.label}
@@ -504,31 +319,35 @@ function TrendCard({ trend, index, onClick }: { trend: Trend; index: number; onC
               </div>
             </div>
           )}
-          <span className="text-slate-500 font-mono text-xs">↗</span>
+          <span className="text-slate-400 font-mono text-xs">↗</span>
         </div>
       </div>
 
+      {trend.last_topic_date && (
+        <div className="text-xs font-mono text-slate-400 mb-2">last seen {fmtDate(trend.last_topic_date)}</div>
+      )}
+
       {/* Summary as title */}
       {trend.summary && (
-        <p className="text-sm text-slate-100 leading-snug mb-4 flex-1 line-clamp-3 font-medium">{trend.summary}</p>
+        <p className="text-sm text-slate-800 leading-snug mb-4 flex-1 line-clamp-3 font-medium">{trend.summary}</p>
       )}
 
       {/* Metrics */}
       {daysTracked && (
-        <div className="grid grid-cols-3 gap-3 pt-3 border-t mb-3" style={{ borderColor: "rgb(30,45,65)" }}>
+        <div className="grid grid-cols-3 gap-3 pt-3 border-t mb-3" style={{ borderColor: "#e2e8f0" }}>
           <div>
             <div className="text-xs text-slate-400 mb-0.5 font-mono">growth</div>
-            <div className={`text-sm font-mono font-bold ${growthRate >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            <div className={`text-sm font-mono font-bold ${growthRate >= 0 ? "text-emerald-600" : "text-red-500"}`}>
               {growthRate >= 0 ? "+" : ""}{(growthRate * 100).toFixed(0)}%
             </div>
           </div>
           <div>
             <div className="text-xs text-slate-400 mb-0.5 font-mono">tracked</div>
-            <div className="text-sm font-mono font-bold text-slate-200">{daysTracked}d</div>
+            <div className="text-sm font-mono font-bold text-slate-700">{daysTracked}d</div>
           </div>
           <div>
             <div className="text-xs text-slate-400 mb-0.5 font-mono">velocity</div>
-            <div className="text-sm font-mono font-bold text-slate-200">{velocity >= 0 ? "+" : ""}{velocity}</div>
+            <div className="text-sm font-mono font-bold text-slate-700">{velocity >= 0 ? "+" : ""}{velocity}</div>
           </div>
         </div>
       )}
@@ -537,25 +356,39 @@ function TrendCard({ trend, index, onClick }: { trend: Trend; index: number; onC
       {dailySizes.length > 1 && (
         <div>
           <div className="text-xs text-slate-400 font-mono mb-1.5">daily volume</div>
-          <div className="flex items-end gap-0.5 h-6">
+          <div className="flex items-end gap-0.5 h-6 relative">
             {dailySizes.map((size, i) => {
               const height = max > 0 ? (size / max) * 100 : 0;
               const isLast = i === dailySizes.length - 1;
+              const isHov = hoveredBar === i;
               return (
-                <div key={i} className="flex-1 rounded-sm" style={{
-                  height: `${Math.max(height, 8)}%`,
-                  backgroundColor: isLast ? "rgb(56,189,248)" : "rgb(30,48,75)",
-                  opacity: isLast ? 1 : 0.35 + (i / dailySizes.length) * 0.45,
-                }} />
+                <div
+                  key={i}
+                  className="flex-1 rounded-sm"
+                  style={{
+                    height: `${Math.max(height, 8)}%`,
+                    backgroundColor: isHov ? "rgb(14,165,233)" : isLast ? "rgb(14,165,233)" : "#e2e8f0",
+                    opacity: isHov ? 1 : isLast ? 1 : 0.4 + (i / dailySizes.length) * 0.5,
+                  }}
+                  onMouseEnter={() => setHoveredBar(i)}
+                  onMouseLeave={() => setHoveredBar(null)}
+                />
               );
             })}
+            {hoveredBar !== null && (
+              <div className="absolute -top-6 left-0 right-0 flex justify-center pointer-events-none">
+                <span className="bg-white border border-slate-200 rounded px-1.5 py-0.5 shadow-sm" style={{ fontSize: "10px", fontFamily: "monospace", color: "rgb(71,85,105)" }}>
+                  {dailySizes[hoveredBar]} posts
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {!daysTracked && (
-        <div className="pt-3 border-t" style={{ borderColor: "rgb(30,45,65)" }}>
-          <span className="text-xs font-mono text-slate-400 px-2 py-0.5 rounded" style={{ backgroundColor: "rgb(20,32,52)" }}>
+        <div className="pt-3 border-t" style={{ borderColor: "#e2e8f0" }}>
+          <span className="text-xs font-mono text-slate-500 px-2 py-0.5 rounded" style={{ backgroundColor: "#f1f5f9" }}>
             ◉ early signal · day 1
           </span>
         </div>
@@ -567,19 +400,27 @@ function TrendCard({ trend, index, onClick }: { trend: Trend; index: number; onC
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 const CATEGORIES: { key: string; label: string }[] = [
+  { key: "emerging", label: "Emerging" },
   { key: "trending", label: "Trending" },
   { key: "peak",     label: "Peak"     },
-  { key: "emerging", label: "Emerging" },
-  { key: "cooling",  label: "Cooling"  },
 ];
 
-export default function Dashboard() {
+function Dashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [trends, setTrends] = useState<Trend[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [dailyHot, setDailyHot] = useState<DailyHot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string | null>(searchParams.get("filter"));
+
+  const handleFilter = (key: string | null) => {
+    setFilter(key);
+    const params = new URLSearchParams(searchParams.toString());
+    if (key) params.set("filter", key);
+    else params.delete("filter");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  };
 
   useEffect(() => {
     Promise.all([
@@ -595,13 +436,13 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="min-h-screen text-slate-100" style={{ backgroundColor: "rgb(8,14,26)" }}>
-      <header className="border-b px-8 py-4 sticky top-0 z-10 backdrop-blur-sm" style={{ borderColor: "rgb(25,38,60)", backgroundColor: "rgba(8,14,26,0.95)" }}>
+    <div className="min-h-screen text-slate-800 bg-slate-50">
+      <header className="border-b px-8 py-4 sticky top-0 z-10 backdrop-blur-sm bg-white/90" style={{ borderColor: "#e2e8f0" }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sky-400 text-xs font-mono">◈</span>
-              <h1 className="text-base font-bold tracking-tight font-mono text-slate-100">TrendRadar</h1>
+              <span className="text-sky-500 text-xs font-mono">◈</span>
+              <h1 className="text-base font-bold tracking-tight font-mono text-slate-800">TrendRadar</h1>
             </div>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
               X → noise filter → embedding → HDBSCAN → trend chains → scoring
@@ -610,15 +451,15 @@ export default function Dashboard() {
           {stats && (
             <div className="flex items-center gap-6 text-xs font-mono">
               <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-slate-400">live</span>
               </div>
               <span className="text-slate-400">
-                <span className="text-slate-200">{stats.totalPosts.toLocaleString()}</span> posts
+                <span className="text-slate-700">{stats.totalPosts.toLocaleString()}</span> posts
               </span>
               {stats.lastScraped && (
                 <span className="text-slate-400">
-                  scraped <span className="text-slate-200">{new Date(stats.lastScraped).toLocaleDateString()}</span>
+                  scraped <span className="text-slate-700">{new Date(stats.lastScraped).toLocaleDateString()}</span>
                 </span>
               )}
             </div>
@@ -642,11 +483,11 @@ export default function Dashboard() {
 
             {/* Filter bar */}
             <div className="flex items-center gap-2 mb-6">
-              <div className="flex-1 h-px" style={{ backgroundColor: "rgb(25,38,60)" }} />
+              <div className="flex-1 h-px bg-slate-200" />
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => setFilter(null)}
-                  className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors ${filter === null ? "text-slate-100 border-slate-500 bg-white/10" : "text-slate-400 border-transparent hover:border-slate-600"}`}
+                  onClick={() => handleFilter(null)}
+                  className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors ${filter === null ? "text-slate-700 border-slate-300 bg-slate-100" : "text-slate-400 border-transparent hover:border-slate-300"}`}
                 >
                   all
                 </button>
@@ -657,8 +498,8 @@ export default function Dashboard() {
                   return (
                     <button
                       key={key}
-                      onClick={() => setFilter(filter === key ? null : key)}
-                      className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors flex items-center gap-1.5 ${filter === key ? `${cfg.bg} ${cfg.color} ${cfg.border}` : "text-slate-400 border-transparent hover:border-slate-600"}`}
+                      onClick={() => handleFilter(filter === key ? null : key)}
+                      className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors flex items-center gap-1.5 ${filter === key ? `${cfg.bg} ${cfg.color} ${cfg.border}` : "text-slate-400 border-transparent hover:border-slate-300"}`}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                       {label.toLowerCase()} {count}
@@ -666,13 +507,13 @@ export default function Dashboard() {
                   );
                 })}
               </div>
-              <div className="flex-1 h-px" style={{ backgroundColor: "rgb(25,38,60)" }} />
+              <div className="flex-1 h-px bg-slate-200" />
             </div>
 
             {trends.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-slate-400 font-mono text-sm">
                 <div>no trends detected</div>
-                <div className="text-xs mt-1 text-slate-500">run ml pipeline after collecting data</div>
+                <div className="text-xs mt-1 text-slate-300">run ml pipeline after collecting data</div>
               </div>
             ) : filter ? (
               /* Filtered: 3-col grid of one category */
@@ -689,13 +530,13 @@ export default function Dashboard() {
                   const col = trends.filter((t) => t.status === key);
                   return (
                     <div key={key}>
-                      <div className="flex items-center gap-2 mb-3 pb-2 border-b" style={{ borderColor: "rgb(25,38,60)" }}>
+                      <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-200">
                         <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
                         <span className={`text-xs font-mono font-bold ${cfg.color}`}>{label}</span>
-                        <span className="text-xs font-mono text-slate-500">{col.length}</span>
+                        <span className="text-xs font-mono text-slate-400">{col.length}</span>
                       </div>
                       {col.length === 0 ? (
-                        <div className="text-xs font-mono text-slate-500 py-4 text-center">none</div>
+                        <div className="text-xs font-mono text-slate-400 py-4 text-center">none</div>
                       ) : (
                         <div className="flex flex-col gap-3">
                           {col.map((trend, i) => (
@@ -713,5 +554,13 @@ export default function Dashboard() {
       </main>
 
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-400 text-sm font-mono animate-pulse">loading...</div>}>
+      <Dashboard />
+    </Suspense>
   );
 }
