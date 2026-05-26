@@ -27,7 +27,7 @@ export async function GET(
 
         const samplePosts = await db
           .collection("posts")
-          .find({ cluster_id: tid })
+          .find({ post_id: { $in: topic.post_ids ?? [] } })
           .sort({ likes: -1 })
           .limit(5)
           .toArray();

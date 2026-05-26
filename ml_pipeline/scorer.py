@@ -29,7 +29,7 @@ def calculate_status(growth_rates: list[float], daily_sizes: list[int]) -> str:
 
     # Launch spike then faded: peak was in first third, now well below it
     if peak_idx <= max(1, days // 3) and recent_avg < peak_val * 0.55:
-        return "cooling" if avg_growth < -0.05 else "peak"
+        return "peak"
 
     # Clear mid-trend peak, declining since
     if peak_idx < days - 2 and recent_avg < peak_val * 0.7 and avg_growth < 0:
@@ -37,7 +37,7 @@ def calculate_status(growth_rates: list[float], daily_sizes: list[int]) -> str:
 
     # Recently declining sharply (only meaningful if it had real traction first)
     if days >= 5 and latest_growth < -0.3 and avg_growth < 0:
-        return "cooling"
+        return "peak"
 
     # Long-running with any positive growth → trending
     if days >= 10 and avg_growth > 0:

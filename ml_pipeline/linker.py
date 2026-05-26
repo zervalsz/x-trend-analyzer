@@ -85,6 +85,7 @@ async def run_linker(
 
         # 每天开始时重建缓存（只含 7 天内仍活跃的 trend）
         trend_cache = await build_trend_centroid_cache(today)
+        used_today: set[str] = set()  # each trend absorbs at most 1 topic per day
 
         for today_topic in today_topics:
             today_vec = np.array(today_topic["centroid"])
@@ -92,6 +93,8 @@ async def run_linker(
             # ── 全局查重：找所有现有活跃 trend 里最相似的 ──────────────────
             best_global_id, best_global_score = None, 0.0
             for tid, (_, centroid) in trend_cache.items():
+                if tid in used_today:
+                    continue
                 score = cosine_similarity(today_vec, centroid)
                 if score > best_global_score:
                     best_global_score = score
@@ -106,6 +109,7 @@ async def run_linker(
                     },
                 )
                 trend_cache[best_global_id] = (trend_cache[best_global_id][0], today_vec)
+                used_today.add(best_global_id)
                 print(
                     f"  cluster {today_topic['cluster_label']} → global merge "
                     f"into {best_global_id} (sim={best_global_score:.3f})"
@@ -152,7 +156,7 @@ async def run_linker(
                     ]
                     avg_sim = sum(sims) / len(sims) if sims else 0
 
-                    if avg_sim >= coherence_threshold:
+                    if avg_sim >= coherence_threshold and eid not in used_today:
                         await trends.update_one(
                             {"_id": existing_trend["_id"]},
                             {
@@ -161,14 +165,16 @@ async def run_linker(
                             },
                         )
                         trend_cache[eid] = (existing_trend, today_vec)
+                        used_today.add(eid)
                         print(f" → extended {existing_trend['_id']} (coherence={avg_sim:.3f})")
                     else:
+                        reason = "low coherence" if avg_sim < coherence_threshold else "today slot taken"
                         trend_doc = _new_trend(
                             [str(best_match["_id"]), str(today_topic["_id"])], today
                         )
                         result = await trends.insert_one(trend_doc)
                         trend_cache[str(result.inserted_id)] = (trend_doc, today_vec)
-                        print(f" → new trend (low coherence={avg_sim:.3f})")
+                        print(f" → new trend ({reason}, coherence={avg_sim:.3f})")
                 else:
                     trend_doc = _new_trend(
                         [str(best_match["_id"]), str(today_topic["_id"])], today

@@ -263,10 +263,12 @@ function DailyHotSection({ days, onTopicClick }: { days: DailyHot[]; onTopicClic
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-slate-700 leading-snug line-clamp-2 mb-1.5">{topic.summary}</p>
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                            <span className={`w-1 h-1 rounded-full ${cfg.dot}`} />
-                            {cfg.label}
-                          </span>
+                          {topic.trend_status !== "cooling" && (
+                            <span className={`inline-flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+                              <span className={`w-1 h-1 rounded-full ${cfg.dot}`} />
+                              {cfg.label}
+                            </span>
+                          )}
                           <span className="text-xs font-mono text-slate-400">{topic.size} posts</span>
                         </div>
                       </div>
