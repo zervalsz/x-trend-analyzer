@@ -445,7 +445,7 @@ function Dashboard() {
               <h1 className="text-base font-bold tracking-tight font-mono text-slate-800">TrendRadar</h1>
             </div>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
-              X → noise filter → embedding → HDBSCAN → trend chains → scoring
+              AI trend intelligence from X and Hacker News
             </p>
           </div>
           {stats && (
@@ -468,6 +468,42 @@ function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-8 py-8">
+        {/* Intro */}
+        <div className="mb-8 pb-8 border-b" style={{ borderColor: "#e2e8f0" }}>
+          <p className="text-slate-600 text-sm mb-5 max-w-2xl leading-relaxed">
+            TrendRadar tracks what the AI community is actually discussing on X and Hacker News —
+            clustering daily posts into topics, chaining them across days into trends, and surfacing
+            what's gaining momentum before it goes mainstream.
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              {
+                icon: "◉",
+                title: "Daily Hot Topics",
+                desc: "See the top AI discussions each day, ranked by post volume. Updated twice daily from Hacker News, and from X whenever a scrape runs.",
+              },
+              {
+                icon: "↗",
+                title: "Emerging · Trending · Peak",
+                desc: "Topics are chained across days into trend timelines and scored by growth rate. Spot what's just starting, gaining traction, or reaching peak buzz.",
+              },
+              {
+                icon: "→",
+                title: "Click any trend",
+                desc: "Open the full day-by-day timeline with summaries, sample posts, and engagement metrics. Useful for deciding whether a topic is worth covering.",
+              },
+            ].map(({ icon, title, desc }) => (
+              <div key={title} className="rounded-xl border bg-white p-4" style={{ borderColor: "#e2e8f0" }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sky-500 font-mono">{icon}</span>
+                  <span className="text-xs font-mono font-bold text-slate-700">{title}</span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {loading ? (
           <div className="flex items-center justify-center h-64 text-slate-400 text-sm font-mono animate-pulse">
             loading...
