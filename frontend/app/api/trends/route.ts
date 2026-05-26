@@ -25,14 +25,13 @@ export async function GET() {
       .sort({ last_topic_date: -1 })
       .toArray();
 
-    // Cap emerging to top 15 by engagement to avoid flooding the column
-    const EMERGING_LIMIT = 15;
+    const LIMITS: Record<string, number> = { emerging: 15, peak: 10 };
     const statusCount: Record<string, number> = {};
     const filtered = trends.filter((t) => {
       const s = t.status ?? "emerging";
       if (s === "emerging" && (t.metrics?.days_tracked ?? 0) <= 1) return false;
       statusCount[s] = (statusCount[s] ?? 0) + 1;
-      if (s === "emerging" && statusCount[s] > EMERGING_LIMIT) return false;
+      if (LIMITS[s] && statusCount[s] > LIMITS[s]) return false;
       return true;
     });
 

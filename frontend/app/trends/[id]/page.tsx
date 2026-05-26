@@ -224,7 +224,7 @@ function DayGroup({ topics }: { topics: Topic[] }) {
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-4">
-          <span className="text-xs font-mono text-slate-400">{totalPosts} posts</span>
+          <span className="text-xs font-mono text-slate-400">{totalPosts} posts · up to 5 shown</span>
           <span className="text-slate-400 font-mono text-xs">{expanded ? "▲" : "▼"}</span>
         </div>
       </button>
