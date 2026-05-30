@@ -85,7 +85,6 @@ async def run_linker(
 
         # 每天开始时重建缓存（只含 7 天内仍活跃的 trend）
         trend_cache = await build_trend_centroid_cache(today)
-        used_today: set[str] = set()  # each trend absorbs at most 1 topic per day
 
         for today_topic in today_topics:
             today_vec = np.array(today_topic["centroid"])
@@ -93,8 +92,6 @@ async def run_linker(
             # ── 全局查重：找所有现有活跃 trend 里最相似的 ──────────────────
             best_global_id, best_global_score = None, 0.0
             for tid, (_, centroid) in trend_cache.items():
-                if tid in used_today:
-                    continue
                 score = cosine_similarity(today_vec, centroid)
                 if score > best_global_score:
                     best_global_score = score
@@ -109,7 +106,6 @@ async def run_linker(
                     },
                 )
                 trend_cache[best_global_id] = (trend_cache[best_global_id][0], today_vec)
-                used_today.add(best_global_id)
                 print(
                     f"  cluster {today_topic['cluster_label']} → global merge "
                     f"into {best_global_id} (sim={best_global_score:.3f})"
@@ -156,7 +152,7 @@ async def run_linker(
                     ]
                     avg_sim = sum(sims) / len(sims) if sims else 0
 
-                    if avg_sim >= coherence_threshold and eid not in used_today:
+                    if avg_sim >= coherence_threshold:
                         await trends.update_one(
                             {"_id": existing_trend["_id"]},
                             {
@@ -165,16 +161,14 @@ async def run_linker(
                             },
                         )
                         trend_cache[eid] = (existing_trend, today_vec)
-                        used_today.add(eid)
                         print(f" → extended {existing_trend['_id']} (coherence={avg_sim:.3f})")
                     else:
-                        reason = "low coherence" if avg_sim < coherence_threshold else "today slot taken"
                         trend_doc = _new_trend(
                             [str(best_match["_id"]), str(today_topic["_id"])], today
                         )
                         result = await trends.insert_one(trend_doc)
                         trend_cache[str(result.inserted_id)] = (trend_doc, today_vec)
-                        print(f" → new trend ({reason}, coherence={avg_sim:.3f})")
+                        print(f" → new trend (low coherence={avg_sim:.3f})")
                 else:
                     trend_doc = _new_trend(
                         [str(best_match["_id"]), str(today_topic["_id"])], today
@@ -190,6 +184,69 @@ async def run_linker(
 
     total = await trends.count_documents({})
     print(f"\nDone! Total trends in DB: {total}")
+
+    print("\nDeduplicating similar trends...")
+    await deduplicate_trends()
+    total = await trends.count_documents({})
+    print(f"After dedup: {total} trends in DB")
+
+
+async def deduplicate_trends(similarity_threshold: float = 0.92):
+    """Merge trends whose last-topic centroids are very similar."""
+    all_trends = await trends.find(
+        {"topic_ids": {"$exists": True, "$not": {"$size": 0}}},
+        {"_id": 1, "topic_ids": 1}
+    ).to_list(None)
+    if not all_trends:
+        return
+
+    # Fetch all topic dates in one batch
+    all_topic_ids = list({tid for t in all_trends for tid in t["topic_ids"]})
+    topic_docs = await topics.find(
+        {"_id": {"$in": [ObjectId(tid) for tid in all_topic_ids]}},
+        {"_id": 1, "centroid": 1, "date": 1}
+    ).to_list(None)
+    topic_map = {str(t["_id"]): t for t in topic_docs}
+
+    # Build (trend, last_centroid) list
+    trend_vecs = []
+    for trend_doc in all_trends:
+        last_tid = trend_doc["topic_ids"][-1]
+        t = topic_map.get(last_tid)
+        if t and t.get("centroid"):
+            trend_vecs.append((trend_doc, np.array(t["centroid"])))
+
+    deleted: set[str] = set()
+    merges = 0
+    for i, (t1, c1) in enumerate(trend_vecs):
+        if str(t1["_id"]) in deleted:
+            continue
+        for t2, c2 in trend_vecs[i + 1:]:
+            if str(t2["_id"]) in deleted:
+                continue
+            sim = cosine_similarity(c1, c2)
+            if sim >= similarity_threshold:
+                keep, drop = (t1, t2) if len(t1["topic_ids"]) >= len(t2["topic_ids"]) else (t2, t1)
+                merged_ids = list(dict.fromkeys(keep["topic_ids"] + drop["topic_ids"]))
+                sorted_ids = sorted(
+                    merged_ids,
+                    key=lambda oid: topic_map[oid]["date"] if oid in topic_map else datetime.min
+                )
+                latest = max(
+                    (topic_map[oid]["date"] for oid in sorted_ids if oid in topic_map),
+                    default=None
+                )
+                await trends.update_one(
+                    {"_id": keep["_id"]},
+                    {"$set": {"topic_ids": sorted_ids, "last_topic_date": latest,
+                              "last_updated": datetime.now(timezone.utc)}}
+                )
+                await trends.delete_one({"_id": drop["_id"]})
+                deleted.add(str(drop["_id"]))
+                merges += 1
+                print(f"  dedup: {drop['_id']} → {keep['_id']} (sim={sim:.3f})")
+
+    print(f"Trend dedup: merged {merges} duplicate trends")
 
 
 def _new_trend(topic_ids: list[str], last_topic_date: datetime | None = None) -> dict:

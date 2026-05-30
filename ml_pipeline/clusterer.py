@@ -152,6 +152,38 @@ async def cluster_day(target_date: datetime) -> int:
         inserted += 1
 
     print(f"{start.date()} → {inserted} clusters, {truly_unclustered} posts truly unclustered")
+
+    # ── Step 5: 合并同天近似重复的 cluster（sim > 0.85）────────────────────
+    if inserted > 1:
+        day_topics = await topics.find({"date": start, "centroid": {"$exists": True}}).to_list(None)
+        topic_vecs = [(t, np.array(t["centroid"])) for t in day_topics]
+        to_delete: set[str] = set()
+        merges = 0
+        for i, (t1, c1) in enumerate(topic_vecs):
+            if str(t1["_id"]) in to_delete:
+                continue
+            for j, (t2, c2) in enumerate(topic_vecs[i + 1:], i + 1):
+                if str(t2["_id"]) in to_delete:
+                    continue
+                sim = cosine_sim(c1, c2)
+                if sim >= 0.85:
+                    keep, drop = (t1, t2) if t1["size"] >= t2["size"] else (t2, t1)
+                    merged_ids = list(dict.fromkeys(keep.get("post_ids", []) + drop.get("post_ids", [])))
+                    await posts.update_many(
+                        {"post_id": {"$in": drop.get("post_ids", [])}},
+                        {"$set": {"cluster_id": str(keep["_id"])}}
+                    )
+                    await topics.update_one(
+                        {"_id": keep["_id"]},
+                        {"$set": {"post_ids": merged_ids, "size": len(merged_ids)}}
+                    )
+                    await topics.delete_one({"_id": drop["_id"]})
+                    to_delete.add(str(drop["_id"]))
+                    merges += 1
+                    print(f"  dedup: cluster {drop['cluster_label']} → {keep['cluster_label']} (sim={sim:.3f})")
+        if merges:
+            print(f"  → {merges} near-duplicate clusters merged")
+
     return inserted
 
 

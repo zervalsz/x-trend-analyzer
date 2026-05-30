@@ -56,31 +56,35 @@ def calculate_status(growth_rates: list[float], daily_sizes: list[int]) -> str:
 async def score_trend(trend: dict) -> dict:
     topic_ids = trend["topic_ids"]
 
-    daily_sizes = []
-    daily_engagement = []
+    # Aggregate by calendar date so same-day clusters count as one day
+    from bson import ObjectId
+    date_sizes: dict[str, int] = {}
+    date_engagement: dict[str, list] = {}
 
     for topic_id in topic_ids:
-        from bson import ObjectId
         topic = await topics.find_one({"_id": ObjectId(topic_id)})
         if not topic:
             continue
 
         post_list = await posts.find(
-            {"cluster_id": str(topic["_id"])}
+            {"post_id": {"$in": topic.get("post_ids", [])}}
         ).to_list(None)
 
         size = len(post_list)
         if size == 0:
             continue
 
-        engagement_values = [
-            p.get("likes", 0) + p.get("retweets", 0) + p.get("replies", 0)
-            for p in post_list
-        ]
-        median_engagement = float(np.median(engagement_values))
+        date_key = topic["date"].strftime("%Y-%m-%d") if hasattr(topic.get("date"), "strftime") else str(topic.get("date", ""))[:10]
+        if not date_key:
+            continue
 
-        daily_sizes.append(size)
-        daily_engagement.append(median_engagement)
+        date_sizes[date_key] = date_sizes.get(date_key, 0) + size
+        eng = [p.get("likes", 0) + p.get("retweets", 0) + p.get("replies", 0) for p in post_list]
+        date_engagement.setdefault(date_key, []).extend(eng)
+
+    sorted_dates = sorted(date_sizes.keys())
+    daily_sizes = [date_sizes[d] for d in sorted_dates]
+    daily_engagement = [float(np.median(date_engagement[d])) for d in sorted_dates]
 
     if len(daily_sizes) < 2:
         return {}
@@ -103,7 +107,7 @@ async def score_trend(trend: dict) -> dict:
         "growth_rate": float(np.mean(growth_rates)),
         "velocity": float(daily_sizes[-1] - daily_sizes[0]),
         "avg_engagement": median_eng,
-        "days_tracked": len(daily_sizes),
+        "days_tracked": len(daily_sizes),  # now = unique calendar days
     }
 
     status = calculate_status(growth_rates, daily_sizes)
