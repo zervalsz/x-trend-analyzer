@@ -197,7 +197,12 @@ function DayGroup({ topics }: { topics: Topic[] }) {
   const [expanded, setExpanded] = useState(false);
   const dateStr = new Date(topics[0].date).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
   const totalPosts = topics.reduce((s, t) => s + t.size, 0);
-  const allPosts = topics.flatMap((t) => t.posts ?? []);
+
+  // Deduplicate summaries for display
+  const uniqueSummaries = topics
+    .map((t) => t.summary)
+    .filter(Boolean)
+    .filter((s, i, arr) => arr.indexOf(s) === i);
 
   return (
     <div className="rounded-xl border overflow-hidden bg-white" style={{ borderColor: "#e2e8f0" }}>
@@ -208,15 +213,15 @@ function DayGroup({ topics }: { topics: Topic[] }) {
         <div className="flex items-center gap-4 min-w-0 flex-1">
           <span className="text-xs font-mono text-slate-400 shrink-0 w-12">{dateStr}</span>
           <div className="min-w-0 flex-1">
-            {topics.length === 1 ? (
+            {uniqueSummaries.length === 1 ? (
               <span className="text-sm text-slate-700 leading-snug truncate block">
-                {topics[0].summary || "no summary"}
+                {uniqueSummaries[0]}
               </span>
             ) : (
               <div className="space-y-1">
-                {topics.map((t) => (
-                  <p key={t._id} className="text-sm text-slate-700 leading-snug truncate">
-                    · {t.summary || "no summary"}
+                {uniqueSummaries.map((s) => (
+                  <p key={s} className="text-sm text-slate-700 leading-snug truncate">
+                    · {s}
                   </p>
                 ))}
               </div>
