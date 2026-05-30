@@ -56,9 +56,17 @@ function fmtDate(d: string | Date) {
 function DailyPostChart({ topics, height = 140 }: { topics: Topic[]; height?: number }) {
   const [hovered, setHovered] = useState<number | null>(null);
 
-  const sorted = [...topics]
+  // Aggregate by date so same-day clusters appear as one point
+  const byDate = new Map<string, { date: string; size: number }>();
+  [...topics]
     .filter((t) => t.size > 0)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .forEach((t) => {
+      const dk = new Date(t.date).toISOString().slice(0, 10);
+      if (!byDate.has(dk)) byDate.set(dk, { date: t.date, size: 0 });
+      byDate.get(dk)!.size += t.size;
+    });
+  const sorted = [...byDate.values()];
 
   if (sorted.length === 0) return null;
 
@@ -116,7 +124,7 @@ function DailyPostChart({ topics, height = 140 }: { topics: Topic[]; height?: nu
         const ttY = nearTop ? cy + 10 : cy - 50;
 
         return (
-          <g key={topic._id}>
+          <g key={topic.date}>
             <rect
               x={cx - (VW / sorted.length) / 2}
               y={PAD_TOP}
