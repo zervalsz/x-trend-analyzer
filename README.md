@@ -1,6 +1,6 @@
 # TrendRadar
 
-> Track what AI Twitter is actually talking about — before it goes mainstream.
+> Know what's gaining traction in AI — before everyone else does.
 
 TrendRadar scrapes X (Twitter) and Hacker News, clusters posts by topic using embeddings, chains daily clusters into multi-day trend timelines, and scores each trend's momentum. The result is a live dashboard showing which AI topics are emerging, trending, or peaking right now.
 
@@ -8,9 +8,32 @@ TrendRadar scrapes X (Twitter) and Hacker News, clusters posts by topic using em
 
 ---
 
-## The Idea
+## The Problem
 
-AI moves fast. By the time something shows up in newsletters or aggregators, it's already old news. The goal is to surface what's actually gaining traction on X — not by follower count or algorithmic boosting, but by clustering raw post volume and tracking how topics grow day over day.
+If you create AI content or invest in the space, picking the right topic at the right time is everything. The existing options are all either too slow or too subjective:
+
+- **Manually scrolling X** — you see what's loud today, not what's been building for days
+- **Newsletters and aggregators** — curated by humans, arrive after the fact
+- **Following specific accounts** — misses topics that emerge from the broader crowd
+
+By the time a topic reaches your newsletter, it's usually past its peak. And none of these tell you whether a topic is just starting, still growing, or already fading.
+
+**Target users:** AI content creators who need to know what to cover next, and investors who want a pulse on what the AI community is actually discussing.
+
+---
+
+## Why This Works
+
+The core insight is that trend signals are already in the data — you just need to aggregate them correctly.
+
+**1. Data-driven, not editorial**
+A topic only surfaces if enough people are independently talking about it. At least 8 posts must cluster together before it registers. That's a crowd signal, not a single influencer's opinion.
+
+**2. Tracks momentum, not just today**
+Anyone can see what's hot right now. The hard part is knowing whether a topic is just starting, at its peak, or already dying. TrendRadar chains daily clusters across days and scores the trajectory — so you know whether to jump in or move on.
+
+**3. Earlier than aggregators**
+HN is scraped twice daily automatically. X runs daily. Data is processed the same day it's collected — no editorial queue, no newsletter cycle.
 
 The pipeline turns this:
 
